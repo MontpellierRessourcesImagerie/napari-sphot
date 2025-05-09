@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 
-class ExampleQWidget(QWidget):
+class SpatialHeterogenityOfTranscriptionWidget(QWidget):
     # your QWidget.__init__ can optionally request the napari viewer instance
     # use a type annotation of 'napari.viewer.Viewer' for any parameter
     def __init__(self, viewer: "napari.viewer.Viewer"):
@@ -57,8 +57,12 @@ class ExampleQWidget(QWidget):
                                                                             self.labelOfNucleus,
                                                                             self.fieldWidth,
                                                                             self.gFunctionInputChanged)
+        fFunctionButton = QPushButton("F-Function")
         gFunctionButton = QPushButton("G-Function")
+        hFunctionButton = QPushButton("H-Function")
+        fFunctionButton.clicked.connect(self._onFFunctionButtonClicked)
         gFunctionButton.clicked.connect(self._onGFunctionButtonClicked)
+        hFunctionButton.clicked.connect(self._onHFunctionButtonClicked)
         gFunctionMainLayout = QVBoxLayout()
         gFunctionGroupBox.setLayout(gFunctionMainLayout)
         gFunctionSpotsLabel, self.gFunctionSpotsCombo = WidgetTool.getComboInput(self, "Spots: ", self.pointsLayers)
@@ -68,12 +72,18 @@ class ExampleQWidget(QWidget):
         gFunctionLayersLayout.addWidget(self.gFunctionSpotsCombo)
         gFunctionLayersLayout.addWidget(gFunctionLabelsLabel)
         gFunctionLayersLayout.addWidget(self.gFunctionLabelsCombo)
+        FGHLayout = QVBoxLayout()
         gFunctionCellLayout = QHBoxLayout()
         gFunctionCellLayout.addWidget(gFunctionLabel)
         gFunctionCellLayout.addWidget(self.gFunctionInput)
-        gFunctionCellLayout.addWidget(gFunctionButton)
+        FGHLayout.addLayout(gFunctionCellLayout)
+        buttonsLayout = QHBoxLayout()
+        buttonsLayout.addWidget(fFunctionButton)
+        buttonsLayout.addWidget(gFunctionButton)
+        buttonsLayout.addWidget(hFunctionButton)
+        FGHLayout.addLayout(buttonsLayout)
         gFunctionMainLayout.addLayout(gFunctionLayersLayout)
-        gFunctionMainLayout.addLayout(gFunctionCellLayout)
+        gFunctionMainLayout.addLayout(FGHLayout)
         mainLayout = QVBoxLayout()
         mainLayout.addWidget(segmentImageButton)
         mainLayout.addWidget(detectSpotsButton)
@@ -113,14 +123,63 @@ class ExampleQWidget(QWidget):
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
-        analyzer.run()
-        cdf = analyzer.ecdfs[label]
-        envelop = analyzer.getEnvelopFor(label, 100)
+        analyzer.calculateGFunction()
+        envelop = analyzer.getEnvelopForNNDistances(label, 100)
         ax = plt.subplot()
-        analyzer.ecdfs[label].cdf.plot(ax)
+        analyzer.nnEcdfs[label].cdf.plot(ax)
         ax.set_xlabel('distances [nm]')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.nnDistances[label][0])
+        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
+        plt.plot(xValues, envelop[0], 'r--')
+        plt.plot(xValues, envelop[1], 'g--')
+        plt.plot(xValues, envelop[2], 'g--')
+        plt.plot(xValues, envelop[3], 'r--')
+        plt.show()
+
+
+    def _onHFunctionButtonClicked(self):
+        label = int(self.gFunctionInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer.calculateHFunction()
+        envelop = analyzer.getEnvelopForAllDistances(label, 100)
+        ax = plt.subplot()
+        analyzer.adEcdfs[label].cdf.plot(ax)
+        ax.set_xlabel('distances [nm]')
+        ax.set_ylabel('Empirical CDF')
+        maxDist = np.max(analyzer.allDistances[label][0])
+        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
+        plt.plot(xValues, envelop[0], 'r--')
+        plt.plot(xValues, envelop[1], 'g--')
+        plt.plot(xValues, envelop[2], 'g--')
+        plt.plot(xValues, envelop[3], 'r--')
+        plt.show()
+
+
+    def _onFFunctionButtonClicked(self):
+        label = int(self.gFunctionInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer.calculateFFunction()
+        envelop = analyzer.getEnvelopForEmptySpaceDistances(label, 100)
+        ax = plt.subplot()
+        analyzer.adEcdfs[label].cdf.plot(ax)
+        ax.set_xlabel('distances [nm]')
+        ax.set_ylabel('Empirical CDF')
+        maxDist = np.max(analyzer.allDistances[label][0])
         xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
         plt.plot(xValues, envelop[0], 'r--')
         plt.plot(xValues, envelop[1], 'g--')

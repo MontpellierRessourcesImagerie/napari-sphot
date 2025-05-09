@@ -10,7 +10,7 @@ contributions:
       python_name: napari_sphot._sample_data:make_sample_data
       title: Load sample data from Sphot
     - id: napari-sphot.make_qwidget
-      python_name: napari_sphot:ExampleQWidget
+      python_name: napari_sphot:SpatialHeterogenityOfTranscriptionWidget
       title: Make example QWidget
   sample_data:
     - command: napari-sphot.make_sample_data
@@ -18,4 +18,4 @@ contributions:
       key: unique_id.1
   widgets:
     - command: napari-sphot.make_qwidget
-      display_name: Example QWidget
+      display_name: Spatial Heterogenity Of Transcription
