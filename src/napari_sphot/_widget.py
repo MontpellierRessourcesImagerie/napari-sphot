@@ -13,10 +13,7 @@ from sphot.image import SpotPerCellAnalyzer
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
 from napari_sphot.image import TiffFileTags
-
-
-
-
+from napari_sphot.qtutil import TableView
 if TYPE_CHECKING:
     import napari
 
@@ -37,6 +34,8 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.gFunctionInput = None
         self.gFunctionSpotsCombo = None
         self.gFunctionLabelsCombo = None
+        self.measurements = {}
+        self.table = TableView(self.measurements)
         self.napariUtil = NapariUtil(self.viewer)
         self.pointsLayers = self.napariUtil.getPointsLayers()
         self.labelLayers = self.napariUtil.getLabelLayers()
@@ -44,6 +43,8 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.createLayout()
         self.viewer.layers.events.inserted.connect(self.onLayerAddedOrRemoved)
         self.viewer.layers.events.removed.connect(self.onLayerAddedOrRemoved)
+        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
+                                                                  area='right', name='measurements', tabify=False)
 
 
     def createLayout(self):
@@ -51,12 +52,23 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
         detectSpotsButton = QPushButton("Detect Spots")
         detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
+        gFunctionGroupBox = self.getSpatialStatsWidget()
+        measureGroupBox = self.getMeasurementsWidget()
+        mainLayout = QVBoxLayout()
+        mainLayout.addWidget(segmentImageButton)
+        mainLayout.addWidget(detectSpotsButton)
+        mainLayout.addWidget(gFunctionGroupBox)
+        mainLayout.addWidget(measureGroupBox)
+        self.setLayout(mainLayout)
 
-        gFunctionGroupBox = QGroupBox("G-Function")
+
+    def getSpatialStatsWidget(self):
+        gFunctionGroupBox = QGroupBox("Spatial-Statistics")
+        gFunctionMainLayout = QVBoxLayout
         gFunctionLabel, self.gFunctionInput = WidgetTool.getLineInput(self, "Label of nucleus: ",
-                                                                            self.labelOfNucleus,
-                                                                            self.fieldWidth,
-                                                                            self.gFunctionInputChanged)
+                                                                      self.labelOfNucleus,
+                                                                      self.fieldWidth,
+                                                                      self.gFunctionInputChanged)
         fFunctionButton = QPushButton("F-Function")
         gFunctionButton = QPushButton("G-Function")
         hFunctionButton = QPushButton("H-Function")
@@ -66,7 +78,8 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         gFunctionMainLayout = QVBoxLayout()
         gFunctionGroupBox.setLayout(gFunctionMainLayout)
         gFunctionSpotsLabel, self.gFunctionSpotsCombo = WidgetTool.getComboInput(self, "Spots: ", self.pointsLayers)
-        gFunctionLabelsLabel, self.gFunctionLabelsCombo = WidgetTool.getComboInput(self, "Cell labels: ", self.labelLayers)
+        gFunctionLabelsLabel, self.gFunctionLabelsCombo = WidgetTool.getComboInput(self, "Cell labels: ",
+                                                                                   self.labelLayers)
         gFunctionLayersLayout = QHBoxLayout()
         gFunctionLayersLayout.addWidget(gFunctionSpotsLabel)
         gFunctionLayersLayout.addWidget(self.gFunctionSpotsCombo)
@@ -84,11 +97,32 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         FGHLayout.addLayout(buttonsLayout)
         gFunctionMainLayout.addLayout(gFunctionLayersLayout)
         gFunctionMainLayout.addLayout(FGHLayout)
+        return gFunctionGroupBox
+
+
+    def getMeasurementsWidget(self):
+        measurementsGroupBox = QGroupBox("Measurements")
+        measureButton = QPushButton("Measure")
+        measureButton.clicked.connect(self._onMeasureButtonClicked)
         mainLayout = QVBoxLayout()
-        mainLayout.addWidget(segmentImageButton)
-        mainLayout.addWidget(detectSpotsButton)
-        mainLayout.addWidget(gFunctionGroupBox)
-        self.setLayout(mainLayout)
+        measurementsGroupBox.setLayout(mainLayout)
+        buttonLayout = QHBoxLayout()
+        buttonLayout.addWidget(measureButton)
+        mainLayout.addLayout(buttonLayout)
+        return measurementsGroupBox
+
+
+    def _onMeasureButtonClicked(self):
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        self.measurements = analyzer.getNNMeasurements()
+        self.tableDockWidget.close()
+        self.table = TableView(self.measurements)
+        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table, area='right', name='measurements',
+                                                                  tabify=False)
 
 
     def _onSegmentImageButtonClicked(self):
