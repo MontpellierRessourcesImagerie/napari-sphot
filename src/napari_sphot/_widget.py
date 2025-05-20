@@ -10,6 +10,7 @@ from napari.qt.threading import create_worker
 from sphot.image import Segmentation
 from sphot.image import SpotDetection
 from sphot.image import SpotPerCellAnalyzer
+from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
 from napari_sphot.image import TiffFileTags
@@ -108,7 +109,15 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         measurementsGroupBox.setLayout(mainLayout)
         buttonLayout = QHBoxLayout()
         buttonLayout.addWidget(measureButton)
+        convexHullButton = QPushButton("Convex Hull")
+        convexHullButton.clicked.connect(self._onConvexHullButtonClicked)
+        delaunayButton = QPushButton("Delaunay")
+        delaunayButton.clicked.connect(self._onDelaunayButtonClicked)
+        displayButtonsLayout = QHBoxLayout()
+        displayButtonsLayout.addWidget(convexHullButton)
+        displayButtonsLayout.addWidget(delaunayButton)
         mainLayout.addLayout(buttonLayout)
+        mainLayout.addLayout(displayButtonsLayout)
         return measurementsGroupBox
 
 
@@ -118,11 +127,47 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
-        self.measurements = analyzer.getNNMeasurements()
+        baseMeasurements = analyzer.getBaseMeasurements()
+        nnMeasurements = analyzer.getNNMeasurements()
+        nnMeasurements.pop('label')
+        TableTool.addColumnsTableAToB(nnMeasurements, baseMeasurements)
+        convexHullMeasurements = analyzer.getConvexHullMeasurements()
+        convexHullMeasurements.pop('label')
+        TableTool.addColumnsTableAToB(convexHullMeasurements, baseMeasurements)
+        delaunayMeasurements = analyzer.getDelaunayMeasurements()
+        delaunayMeasurements.pop('label')
+        TableTool.addColumnsTableAToB(delaunayMeasurements, baseMeasurements)
+        self.measurements = baseMeasurements
         self.tableDockWidget.close()
         self.table = TableView(self.measurements)
         self.tableDockWidget = self.viewer.window.add_dock_widget(self.table, area='right', name='measurements',
                                                                   tabify=False)
+
+    def _onConvexHullButtonClicked(self):
+        label = int(self.gFunctionInput.text().strip())
+        if not label:
+            return
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        hull = analyzer.getConvexHull(label)
+        self.viewer.add_points(hull.points[hull.vertices], scale=(self.scale, self.scale, self.scale))
+        self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=(self.scale, self.scale, self.scale))
+
+
+    def _onDelaunayButtonClicked(self):
+        label = int(self.gFunctionInput.text().strip())
+        if not label:
+            return
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        tess = analyzer.getDelaunay(label)
+        self.viewer.add_shapes(tess.points[tess.simplices], scale=(self.scale, self.scale, self.scale), shape_type='polygon')
 
 
     def _onSegmentImageButtonClicked(self):
