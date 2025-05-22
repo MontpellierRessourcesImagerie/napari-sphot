@@ -113,9 +113,12 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         convexHullButton.clicked.connect(self._onConvexHullButtonClicked)
         delaunayButton = QPushButton("Delaunay")
         delaunayButton.clicked.connect(self._onDelaunayButtonClicked)
+        voronoiButton = QPushButton("Voronoi")
+        voronoiButton.clicked.connect(self._onVoronoiButtonClicked)
         displayButtonsLayout = QHBoxLayout()
         displayButtonsLayout.addWidget(convexHullButton)
         displayButtonsLayout.addWidget(delaunayButton)
+        displayButtonsLayout.addWidget(voronoiButton)
         mainLayout.addLayout(buttonLayout)
         mainLayout.addLayout(displayButtonsLayout)
         return measurementsGroupBox
@@ -168,6 +171,19 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
         tess = analyzer.getDelaunay(label)
         self.viewer.add_shapes(tess.points[tess.simplices], scale=(self.scale, self.scale, self.scale), shape_type='polygon')
+
+
+    def _onVoronoiButtonClicked(self):
+        label = int(self.gFunctionInput.text().strip())
+        if not label:
+            return
+        text = self.gFunctionSpotsCombo.currentText()
+        spots = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        regions = analyzer.getVoronoiRegions(label)
+        self.viewer.add_shapes(regions, scale=(self.scale, self.scale, self.scale), shape_type='polygon')
 
 
     def _onSegmentImageButtonClicked(self):
