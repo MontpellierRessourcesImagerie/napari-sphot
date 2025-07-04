@@ -1,5 +1,6 @@
 from napari.layers.labels.labels import Labels
 from napari.layers.points.points import Points
+from napari.layers.image.image import Image
 
 class NapariUtil:
     """ Utility methods for the napari image viewer.
@@ -12,6 +13,15 @@ class NapariUtil:
         :type viewer: napari.viewer.Viewer
         """
         self.viewer = viewer
+
+
+    def getImageLayers(self):
+        """ Return all image layers
+
+                :return: A list of the image layers in the viewer
+                :rtype: [napari.layers.image.Image.Image]
+                """
+        return self.getLayersOfType(Image)
 
 
     def getLabelLayers(self):

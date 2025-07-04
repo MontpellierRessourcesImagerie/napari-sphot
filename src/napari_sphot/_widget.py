@@ -3,6 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL.ImageOps import scale
+from scipy.ndimage import median_filter
 from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QFormLayout, QGroupBox
 from napari.layers import Image
 from napari.utils.events import Event
@@ -29,6 +30,8 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.scale = 50 #@TODO: get the scale from the input image
         self.fieldWidth = 300
         self.labelOfNucleus = 1
+        self.medianFilterSize = 5
+        self.medianFilterSizeInput = None
         self.segmentation = None
         self.layer = None
         self.spotsLayer = None
@@ -40,6 +43,7 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.napariUtil = NapariUtil(self.viewer)
         self.pointsLayers = self.napariUtil.getPointsLayers()
         self.labelLayers = self.napariUtil.getLabelLayers()
+        self.imageLayers = self.napariUtil.getImageLayers()
         self.viewer = viewer
         self.createLayout()
         self.viewer.layers.events.inserted.connect(self.onLayerAddedOrRemoved)
@@ -49,6 +53,16 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
 
 
     def createLayout(self):
+        medianFilterLayout = QHBoxLayout()
+        medianFilterLabel, self.medianFilterSizeInput = WidgetTool.getLineInput(self, "Filter Size: ",
+                                                                      self.medianFilterSize,
+                                                                      self.fieldWidth,
+                                                                      self.medianFilterSizeChanged)
+        medianFilterButton = QPushButton("Median Filter")
+        medianFilterButton.clicked.connect(self._onMedianFilterButtonClicked)
+        medianFilterLayout.addWidget(medianFilterLabel)
+        medianFilterLayout.addWidget(self.medianFilterSizeInput)
+        medianFilterLayout.addWidget(medianFilterButton)
         segmentImageButton = QPushButton("Segment Image")
         segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
         detectSpotsButton = QPushButton("Detect Spots")
@@ -56,6 +70,7 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         gFunctionGroupBox = self.getSpatialStatsWidget()
         measureGroupBox = self.getMeasurementsWidget()
         mainLayout = QVBoxLayout()
+        mainLayout.addLayout(medianFilterLayout)
         mainLayout.addWidget(segmentImageButton)
         mainLayout.addWidget(detectSpotsButton)
         mainLayout.addWidget(gFunctionGroupBox)
@@ -63,9 +78,14 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.setLayout(mainLayout)
 
 
+    def getCrossCorrelationWidget(self):
+        crossCorrelationGroupBox = QGroupBox("Cross Correlation")
+        ccMainLayout = QVBoxLayout()
+        cropImageLabel, self.cropImageCombo = WidgetTool.getComboInput(self, "Image: ", self.pointsLayers)
+
+
     def getSpatialStatsWidget(self):
         gFunctionGroupBox = QGroupBox("Spatial-Statistics")
-        gFunctionMainLayout = QVBoxLayout
         gFunctionLabel, self.gFunctionInput = WidgetTool.getLineInput(self, "Label of nucleus: ",
                                                                       self.labelOfNucleus,
                                                                       self.fieldWidth,
@@ -122,6 +142,15 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         mainLayout.addLayout(buttonLayout)
         mainLayout.addLayout(displayButtonsLayout)
         return measurementsGroupBox
+
+
+    def _onMedianFilterButtonClicked(self):
+        layer = self.getActiveLayer()
+        if not layer or not type(layer) is Image:
+            return
+        self.medianFilterSize = int(self.medianFilterSizeInput.text().strip())
+        filteredImage = median_filter(layer.data, self.medianFilterSize)
+        self.viewer.add_image(filteredImage, name=layer.name + "_median_" + str(self.medianFilterSize ))
 
 
     def _onMeasureButtonClicked(self):
@@ -305,16 +334,24 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         pass
 
 
+    def medianFilterSizeChanged(self):
+        pass
+
+
     def onLayerAddedOrRemoved(self, event: Event):
         self.updateLayerSelectionComboBoxes()
 
 
     def updateLayerSelectionComboBoxes(self):
         labelComboBoxes = [self.gFunctionLabelsCombo]
+        spotComboBoxes = [self.gFunctionSpotsCombo]
+        imageComboBoxes = [self.cropImageCombo]
         labelLayers = self.napariUtil.getLabelLayers()
+        spotLayers = self.napariUtil.getPointsLayers()
+        imageLayers = self.napariUtil.getImageLayers()
         for comboBox in labelComboBoxes:
             WidgetTool.replaceItemsInComboBox(comboBox, labelLayers)
-        spotComboBoxes = [self.gFunctionSpotsCombo]
-        spotLayers = self.napariUtil.getPointsLayers()
         for comboBox in spotComboBoxes:
             WidgetTool.replaceItemsInComboBox(comboBox, spotLayers)
+        for comboBox in imageComboBoxes:
+            WidgetTool.replaceItemsInComboBox(comboBox, imageLayers)
