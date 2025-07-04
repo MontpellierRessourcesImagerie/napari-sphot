@@ -11,6 +11,7 @@ from napari.qt.threading import create_worker
 from sphot.image import Segmentation
 from sphot.image import SpotDetection
 from sphot.image import SpotPerCellAnalyzer
+from sphot.image import Correlator
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
@@ -34,6 +35,12 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.medianFilterSizeInput = None
         self.segmentation = None
         self.layer = None
+        self.cropImageLabelsCombo = None
+        self.cropImageCombo = None
+        self.cropLabel = 1
+        self.cropLabelInput = None
+        self.ccInputACombo = None
+        self.ccInputBCombo = None
         self.spotsLayer = None
         self.gFunctionInput = None
         self.gFunctionSpotsCombo = None
@@ -69,19 +76,57 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
         gFunctionGroupBox = self.getSpatialStatsWidget()
         measureGroupBox = self.getMeasurementsWidget()
+        crossCorrelationGroupBox = self.getCrossCorrelationWidget()
         mainLayout = QVBoxLayout()
         mainLayout.addLayout(medianFilterLayout)
         mainLayout.addWidget(segmentImageButton)
         mainLayout.addWidget(detectSpotsButton)
         mainLayout.addWidget(gFunctionGroupBox)
         mainLayout.addWidget(measureGroupBox)
+        mainLayout.addWidget(crossCorrelationGroupBox)
         self.setLayout(mainLayout)
 
 
     def getCrossCorrelationWidget(self):
         crossCorrelationGroupBox = QGroupBox("Cross Correlation")
         ccMainLayout = QVBoxLayout()
-        cropImageLabel, self.cropImageCombo = WidgetTool.getComboInput(self, "Image: ", self.pointsLayers)
+        ccCropImageLabelsLayout = QHBoxLayout()
+        ccCropImageLayout = QHBoxLayout()
+        ccCropLabelLayout = QHBoxLayout()
+        cropImageLabelsLabel, self.cropImageLabelsCombo = WidgetTool.getComboInput(self, "Labels: ", self.labelLayers)
+        cropImageLabel, self.cropImageCombo = WidgetTool.getComboInput(self, "Image: ", self.imageLayers)
+        cropLabelLabel, self.cropLabelInput = WidgetTool.getLineInput(self, "Label: ", self.cropLabel,
+                                                                            self.fieldWidth, self.cropLabelInputChanged)
+        cropButton = QPushButton("Crop")
+        cropButton.clicked.connect(self._onCropButtonPressed)
+        ccCropImageLabelsLayout.addWidget(cropImageLabelsLabel)
+        ccCropImageLabelsLayout.addWidget(self.cropImageLabelsCombo)
+        ccCropImageLayout.addWidget(cropImageLabel)
+        ccCropImageLayout.addWidget(self.cropImageCombo)
+        ccCropLabelLayout.addWidget(cropLabelLabel)
+        ccCropLabelLayout.addWidget(self.cropLabelInput)
+        ccCropLabelLayout.addWidget(cropButton)
+
+        ccInputALabel, self.ccInputACombo = WidgetTool.getComboInput(self, "Input A: ", self.imageLayers)
+        ccInputBLabel, self.ccInputBCombo = WidgetTool.getComboInput(self, "Input B: ", self.imageLayers)
+        correlationButton = QPushButton("Correlate")
+        correlationButton.clicked.connect(self._onCorrelationButtonPressed)
+        inputALayout = QHBoxLayout()
+        inputALayout.addWidget(ccInputALabel)
+        inputALayout.addWidget(self.ccInputACombo)
+        inputBLayout = QHBoxLayout()
+        inputBLayout.addWidget(ccInputBLabel)
+        inputBLayout.addWidget(self.ccInputBCombo)
+        correlationButtonLayout = QHBoxLayout()
+        correlationButtonLayout.addWidget(correlationButton)
+        ccMainLayout.addLayout(ccCropImageLabelsLayout)
+        ccMainLayout.addLayout(ccCropImageLayout)
+        ccMainLayout.addLayout(ccCropLabelLayout)
+        ccMainLayout.addLayout(inputALayout)
+        ccMainLayout.addLayout(inputBLayout)
+        ccMainLayout.addLayout(correlationButtonLayout)
+        crossCorrelationGroupBox.setLayout(ccMainLayout)
+        return crossCorrelationGroupBox
 
 
     def getSpatialStatsWidget(self):
@@ -312,6 +357,37 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         plt.show()
 
 
+    def _onCropButtonPressed(self):
+        text = self.cropImageLabelsCombo.currentText()
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        text = self.cropImageCombo.currentText()
+        image = self.napariUtil.getDataOfLayerWithName(text)
+        self.cropLabel = int(self.cropLabelInput.text().strip())
+        if not self.cropLabel:
+            self.cropLabel = 1
+            return
+        analyzer = SpotPerCellAnalyzer(None, labels, 1)
+        croppedImage = analyzer.cropImageForLabel(image, self.cropLabel)
+        self.viewer.add_image(croppedImage, name=text + "_c" + str(self.cropLabel))
+
+
+    def _onCorrelationButtonPressed(self):
+        text1 = self.ccInputACombo.currentText()
+        text2 = self.ccInputBCombo.currentText()
+        if not text1 or not text2:
+            return
+        imageA = self.napariUtil.getDataOfLayerWithName(text1)
+        imageB = self.napariUtil.getDataOfLayerWithName(text2)
+        correlator = Correlator(imageA, imageB)
+        correlator.calculateCrossCorrelationProfile()
+        self.viewer.add_image(correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
+                                                           colormap='inferno', blending='additive')
+        plt.plot(correlator.correlationProfile[0], correlator.correlationProfile[1])
+        data = np.asarray([correlator.correlationProfile[0], correlator.correlationProfile[1]])
+        np.savetxt("corr.: " + text1 + "-" + text2 + ".csv", data, delimiter=",")
+        plt.show()
+
+
     def getActiveLayer(self):
         if len(self.viewer.layers) == 0:
             return None
@@ -338,14 +414,18 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         pass
 
 
+    def cropLabelInputChanged(self):
+        pass
+
+
     def onLayerAddedOrRemoved(self, event: Event):
         self.updateLayerSelectionComboBoxes()
 
 
     def updateLayerSelectionComboBoxes(self):
-        labelComboBoxes = [self.gFunctionLabelsCombo]
+        labelComboBoxes = [self.gFunctionLabelsCombo, self.cropImageLabelsCombo]
         spotComboBoxes = [self.gFunctionSpotsCombo]
-        imageComboBoxes = [self.cropImageCombo]
+        imageComboBoxes = [self.cropImageCombo, self.ccInputACombo, self.ccInputBCombo]
         labelLayers = self.napariUtil.getLabelLayers()
         spotLayers = self.napariUtil.getPointsLayers()
         imageLayers = self.napariUtil.getImageLayers()
