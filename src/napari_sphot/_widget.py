@@ -3,7 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL.ImageOps import scale
-from scipy.ndimage import median_filter
+from sphot.filter import MedianFilter
 from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QFormLayout, QGroupBox
 from napari.layers import Image
 from napari.utils.events import Event
@@ -30,9 +30,11 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.viewer = viewer
         self.scale = 50 #@TODO: get the scale from the input image
         self.fieldWidth = 300
+        self.comboMaxWidth = 300
         self.labelOfNucleus = 1
-        self.medianFilterSize = 5
+        self.medianFilterSize = 2
         self.medianFilterSizeInput = None
+        self.medianFilter = None
         self.segmentation = None
         self.layer = None
         self.cropImageLabelsCombo = None
@@ -94,7 +96,9 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         ccCropImageLayout = QHBoxLayout()
         ccCropLabelLayout = QHBoxLayout()
         cropImageLabelsLabel, self.cropImageLabelsCombo = WidgetTool.getComboInput(self, "Labels: ", self.labelLayers)
+        self.cropImageLabelsCombo.setMaximumWidth(self.comboMaxWidth)
         cropImageLabel, self.cropImageCombo = WidgetTool.getComboInput(self, "Image: ", self.imageLayers)
+        self.cropImageCombo.setMaximumWidth(self.comboMaxWidth)
         cropLabelLabel, self.cropLabelInput = WidgetTool.getLineInput(self, "Label: ", self.cropLabel,
                                                                             self.fieldWidth, self.cropLabelInputChanged)
         cropButton = QPushButton("Crop")
@@ -108,7 +112,9 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         ccCropLabelLayout.addWidget(cropButton)
 
         ccInputALabel, self.ccInputACombo = WidgetTool.getComboInput(self, "Input A: ", self.imageLayers)
+        self.ccInputACombo.setMaximumWidth(self.comboMaxWidth)
         ccInputBLabel, self.ccInputBCombo = WidgetTool.getComboInput(self, "Input B: ", self.imageLayers)
+        self.ccInputBCombo.setMaximumWidth(self.comboMaxWidth)
         correlationButton = QPushButton("Correlate")
         correlationButton.clicked.connect(self._onCorrelationButtonPressed)
         inputALayout = QHBoxLayout()
@@ -144,8 +150,10 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         gFunctionMainLayout = QVBoxLayout()
         gFunctionGroupBox.setLayout(gFunctionMainLayout)
         gFunctionSpotsLabel, self.gFunctionSpotsCombo = WidgetTool.getComboInput(self, "Spots: ", self.pointsLayers)
+        self.gFunctionSpotsCombo.setMaximumWidth(150)
         gFunctionLabelsLabel, self.gFunctionLabelsCombo = WidgetTool.getComboInput(self, "Cell labels: ",
                                                                                    self.labelLayers)
+        self.gFunctionLabelsCombo.setMaximumWidth(150)
         gFunctionLayersLayout = QHBoxLayout()
         gFunctionLayersLayout.addWidget(gFunctionSpotsLabel)
         gFunctionLayersLayout.addWidget(self.gFunctionSpotsCombo)
@@ -194,8 +202,16 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         if not layer or not type(layer) is Image:
             return
         self.medianFilterSize = int(self.medianFilterSizeInput.text().strip())
-        filteredImage = median_filter(layer.data, self.medianFilterSize)
-        self.viewer.add_image(filteredImage, name=layer.name + "_median_" + str(self.medianFilterSize ))
+        self.medianFilter = MedianFilter(layer.data, radius=self.medianFilterSize, name=layer.name)
+        worker = create_worker(self.medianFilter.run,
+                               _progress={'desc': 'Median Filter Running...'})
+        worker.finished.connect(self.onMedianFilterFinished)
+        worker.start()
+
+
+    def onMedianFilterFinished(self):
+        self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
+                                                                  + "_median_" + str(self.medianFilterSize))
 
 
     def _onMeasureButtonClicked(self):
