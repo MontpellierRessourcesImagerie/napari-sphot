@@ -1,10 +1,15 @@
 from typing import TYPE_CHECKING
 import math
-import matplotlib.pyplot as plt
 import numpy as np
-from PIL.ImageOps import scale
+import os
+from pathlib import Path
+import matplotlib.pyplot as plt
+from PyQt5.QtWidgets import QFormLayout
+from napari.utils import notifications
+from napari_bigfish.bigfishapp import BigfishApp
 from sphot.filter import MedianFilter
-from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QFormLayout, QGroupBox
+from qtpy.QtGui import QIcon
+from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QGroupBox, QCheckBox
 from napari.layers import Image
 from napari.utils.events import Event
 from napari.qt.threading import create_worker
@@ -15,26 +20,31 @@ from sphot.image import Correlator
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
-from napari_sphot.image import TiffFileTags
 from napari_sphot.qtutil import TableView
+from napari_sphot.options import Options
 if TYPE_CHECKING:
     import napari
 
 
 
-class SpatialHeterogenityOfTranscriptionWidget(QWidget):
+class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     # your QWidget.__init__ can optionally request the napari viewer instance
     # use a type annotation of 'napari.viewer.Viewer' for any parameter
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self.viewer = viewer
+        self.bigFishApp = None
         self.scale = 50 #@TODO: get the scale from the input image
-        self.fieldWidth = 300
-        self.comboMaxWidth = 300
+        self.fieldWidth = 50
+        self.comboMaxWidth = 150
         self.labelOfNucleus = 1
         self.medianFilterSize = 2
         self.medianFilterSizeInput = None
         self.medianFilter = None
+        self.backgroundSigmaXYInput = None
+        self.backgroundSigmaZInput = None
+        self.backgroundSigmaXY = 2.3
+        self.backgroundSigmaZ = 2.3
         self.segmentation = None
         self.layer = None
         self.cropImageLabelsCombo = None
@@ -61,32 +71,97 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
                                                                   area='right', name='measurements', tabify=False)
 
 
+    @classmethod
+    def getOptionsButton(cls, callback):
+        resourcesPATH = os.path.join(Path(__file__).parent.resolve(), "resources", "gear.png")
+        gearIcon = QIcon(resourcesPATH)
+        optionsButton = QPushButton()
+        optionsButton.setIcon(gearIcon)
+        optionsButton.clicked.connect(callback)
+        return optionsButton
+
+
     def createLayout(self):
+        preProcessingGroupBox = self.getPreProcessingWidget()
+        segmentationGroupBox = self.getSegmentationWidget()
+        gFunctionGroupBox = self.getSpatialStatsWidget()
+        measureGroupBox = self.getMeasurementsWidget()
+        crossCorrelationGroupBox = self.getCrossCorrelationWidget()
+        mainLayout = QVBoxLayout()
+        mainLayout.addWidget(preProcessingGroupBox)
+        mainLayout.addWidget(segmentationGroupBox)
+        mainLayout.addWidget(gFunctionGroupBox)
+        mainLayout.addWidget(measureGroupBox)
+        mainLayout.addWidget(crossCorrelationGroupBox)
+        self.setLayout(mainLayout)
+
+
+    def getSegmentationWidget(self):
+        groupBoxLayout = QGroupBox("Segmentation/Detection")
+        mainLayout = QVBoxLayout()
+        segmentImageButton = QPushButton("Segment Image")
+        segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
+        segmentImageOptionsButton = self.getOptionsButton(self._onSegmentImageOptionsClicked)
+        segmentImageOptionsButton.setMaximumWidth(50)
+        detectSpotsButton = QPushButton("Detect Spots")
+        detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
+        detectSpotsOptionsButton = self.getOptionsButton(self._onDetectSpotsOptionsClicked)
+        detectSpotsOptionsButton.setMaximumWidth(50)
+        segmentationLayout = QHBoxLayout()
+        detectionLayout = QHBoxLayout()
+        segmentationLayout.addWidget(segmentImageButton)
+        segmentationLayout.addWidget(segmentImageOptionsButton)
+        detectionLayout.addWidget(detectSpotsButton)
+        detectionLayout.addWidget(detectSpotsOptionsButton)
+        mainLayout.addLayout(segmentationLayout)
+        mainLayout.addLayout(detectionLayout)
+        groupBoxLayout.setLayout(mainLayout)
+        return groupBoxLayout
+
+
+    def getPreProcessingWidget(self):
+        preProcessingGroupBox = QGroupBox("Pre-Processing")
+        preProcessingMainLayout = QVBoxLayout()
+        preProcessingGroupBox.setLayout(preProcessingMainLayout)
+
         medianFilterLayout = QHBoxLayout()
         medianFilterLabel, self.medianFilterSizeInput = WidgetTool.getLineInput(self, "Filter Size: ",
-                                                                      self.medianFilterSize,
-                                                                      self.fieldWidth,
-                                                                      self.medianFilterSizeChanged)
+                                                                                self.medianFilterSize,
+                                                                                self.fieldWidth,
+                                                                                self.medianFilterSizeChanged)
         medianFilterButton = QPushButton("Median Filter")
         medianFilterButton.clicked.connect(self._onMedianFilterButtonClicked)
         medianFilterLayout.addWidget(medianFilterLabel)
         medianFilterLayout.addWidget(self.medianFilterSizeInput)
         medianFilterLayout.addWidget(medianFilterButton)
-        segmentImageButton = QPushButton("Segment Image")
-        segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
-        detectSpotsButton = QPushButton("Detect Spots")
-        detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
-        gFunctionGroupBox = self.getSpatialStatsWidget()
-        measureGroupBox = self.getMeasurementsWidget()
-        crossCorrelationGroupBox = self.getCrossCorrelationWidget()
-        mainLayout = QVBoxLayout()
-        mainLayout.addLayout(medianFilterLayout)
-        mainLayout.addWidget(segmentImageButton)
-        mainLayout.addWidget(detectSpotsButton)
-        mainLayout.addWidget(gFunctionGroupBox)
-        mainLayout.addWidget(measureGroupBox)
-        mainLayout.addWidget(crossCorrelationGroupBox)
-        self.setLayout(mainLayout)
+        preProcessingMainLayout.addLayout(medianFilterLayout)
+
+        subtractBackgroundLayout = QHBoxLayout()
+        sigmaLayout = QVBoxLayout()
+        sigmaXYLayout = QHBoxLayout()
+        sigmaZLayout = QHBoxLayout()
+        sigmaLayout.addLayout(sigmaXYLayout)
+        sigmaLayout.addLayout(sigmaZLayout)
+        subtractBackgroundLabelXY, self.backgroundSigmaXYInput = WidgetTool.getLineInput(self, "Sigma XY: ",
+                                                                                self.backgroundSigmaXY,
+                                                                                self.fieldWidth,
+                                                                                self.backgroundSigmaXYChanged)
+        subtractBackgroundLabelZ, self.backgroundSigmaZInput = WidgetTool.getLineInput(self, "Sigma Z: ",
+                                                                                       self.backgroundSigmaZ,
+                                                                                       self.fieldWidth,
+                                                                                       self.backgroundSigmaZChanged)
+        subtractBackgroundButton = QPushButton("Subtract\nBackground")
+        subtractBackgroundButton.clicked.connect(self._onSubtractBackgroundButtonClicked)
+        sigmaXYLayout.addWidget(subtractBackgroundLabelXY)
+        sigmaXYLayout.addWidget(self.backgroundSigmaXYInput)
+        sigmaZLayout.addWidget(subtractBackgroundLabelZ)
+        sigmaZLayout.addWidget(self.backgroundSigmaZInput)
+
+        subtractBackgroundLayout.addLayout(sigmaLayout)
+        subtractBackgroundLayout.addWidget(subtractBackgroundButton)
+        preProcessingMainLayout.addLayout(subtractBackgroundLayout)
+
+        return preProcessingGroupBox
 
 
     def getCrossCorrelationWidget(self):
@@ -197,6 +272,20 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         return measurementsGroupBox
 
 
+    def _onSegmentImageOptionsClicked(self):
+        print("segmentation options button clicked")
+        segmentationOptionsWidget = SegmentationOptionsWidget(self.viewer)
+        self.viewer.window.add_dock_widget(segmentationOptionsWidget, area='right', name='Options of Segment Image',
+                                                                      tabify = True)
+
+
+    def _onDetectSpotsOptionsClicked(self):
+        print("detection options button clicked")
+        detectionOptionsWidget = self.getDetectionOptionsWidget()
+        self.viewer.window.add_dock_widget(detectionOptionsWidget, area='right', name='Options of Detect Spots',
+                                                                   tabify=True)
+
+
     def _onMedianFilterButtonClicked(self):
         layer = self.getActiveLayer()
         if not layer or not type(layer) is Image:
@@ -209,9 +298,45 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         worker.start()
 
 
+    def _onSubtractBackgroundButtonClicked(self):
+
+        self.backgroundSigmaXY = float(self.backgroundSigmaXYInput.text().strip())
+        self.backgroundSigmaZ = float(self.backgroundSigmaZInput.text().strip())
+        self.bigFishApp = BigfishApp()
+        activeLayer = self.viewer.layers.selection.active
+        if not activeLayer:
+            notifications.show_error("Subtract background needs an image!")
+            return
+        message = \
+            "Running background subtraction with sigma xy = {}, sigma z = {} on {}."
+        notifications.show_info(
+            message.format(
+                self.backgroundSigmaXY,
+                self.backgroundSigmaZ,
+                activeLayer.name))
+        self.layer = activeLayer
+        self.bigFishApp.setData(self.layer.data)
+        self.bigFishApp.setSigmaXY(self.backgroundSigmaXY)
+        self.bigFishApp.setSigmaZ(self.backgroundSigmaZ)
+        worker = create_worker(self.bigFishApp.subtractBackground,
+                               _progress={'desc': 'Subtracting Background...'})
+        worker.finished.connect(self.onBackgroundSubtractionFinished)
+        worker.start()
+
+
     def onMedianFilterFinished(self):
         self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
                                                                   + "_median_" + str(self.medianFilterSize))
+
+
+    def onBackgroundSubtractionFinished(self):
+        self.viewer.add_image(self.bigFishApp.getResult(),
+                              name = self.layer.name +
+                                     "_background_" +
+                                     str(self.backgroundSigmaZ) + "-"
+                                     + str(self.backgroundSigmaXY),
+                              scale = self.layer.scale
+                              )
 
 
     def _onMeasureButtonClicked(self):
@@ -280,7 +405,14 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         self.layer = self.getActiveLayer()
         if not self.layer or not type(self.layer) is Image:
             return
+        options = SegmentationOptionsWidget(None).options
         self.segmentation = Segmentation(self.layer.data)
+        self.segmentation.clearBorder = options.get('remove_border_objects')
+        self.segmentation.minSize = options.get('min_size')
+        self.segmentation.flowThreshold = options.get("flow_threshold")
+        self.segmentation.cellProbabilityThreshold = options.get("cellprob_threshold")
+        self.segmentation.diameter = options.get('diameter')
+        self.segmentation.resampleDynamics = True
         worker = create_worker(self.segmentation.run,
                                _progress={'total': 5, 'desc': 'Segmenting cells...'})
         worker.finished.connect(self.onSegmentationFinished)
@@ -434,6 +566,14 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
         pass
 
 
+    def backgroundSigmaXYChanged(self):
+        pass
+
+
+    def backgroundSigmaZChanged(self):
+        pass
+
+
     def onLayerAddedOrRemoved(self, event: Event):
         self.updateLayerSelectionComboBoxes()
 
@@ -451,3 +591,110 @@ class SpatialHeterogenityOfTranscriptionWidget(QWidget):
             WidgetTool.replaceItemsInComboBox(comboBox, spotLayers)
         for comboBox in imageComboBoxes:
             WidgetTool.replaceItemsInComboBox(comboBox, imageLayers)
+
+
+
+class SegmentationOptionsWidget(QWidget):
+
+
+    def __init__(self, viewer):
+        super().__init__()
+        self.viewer = viewer
+        self.options = Options("napari-sphot", "segmentation")
+        self.options.setDefaultValues(
+            {
+                'diameter': 90.0,
+                'cellprob_threshold': 0.0,
+                'flow_threshold': 0.4,
+                'min_size': 0.0,
+                'remove_border_objects': True
+            }
+        )
+        self.options.load()
+        self.fieldWidth = 50
+        self.diameterInput = None
+        self.cellprobeThresholdInput = None
+        self.flowThresholdInput = None
+        self.minSizeInput = None
+        self.removeCheckbox = None
+        self.createLayout()
+
+
+    def createLayout(self):
+        mainLayout = QVBoxLayout()
+        formLayout = QFormLayout()
+        buttonsLayout = QHBoxLayout()
+        mainLayout.addLayout(formLayout)
+        mainLayout.addLayout(buttonsLayout)
+        diameterLabel, self.diameterInput = WidgetTool.getLineInput(self, "Diameter: ",
+                                                                                self.options.get('diameter'),
+                                                                                self.fieldWidth,
+                                                                                self.diameterChanged)
+        cellprobeLabel, self.cellprobeThresholdInput = WidgetTool.getLineInput(self, "Cellprob Threshold: ",
+                                                                                self.options.get('cellprob_threshold'),
+                                                                                self.fieldWidth,
+                                                                                self.cellprobThresholdChanged)
+        flowLabel, self.flowThresholdInput = WidgetTool.getLineInput(self, "Flow Threshold: ",
+                                                                               self.options.get('flow_threshold'),
+                                                                               self.fieldWidth,
+                                                                               self.flowThresholdChanged)
+        minSizeLabel, self.minSizeInput = WidgetTool.getLineInput(self, "Min. Size: ",
+                                                                               self.options.get('min_size'),
+                                                                               self.fieldWidth,
+                                                                               self.minSizeChanged)
+        self.removeCheckbox = QCheckBox(text="remove edge")
+        self.removeCheckbox.setChecked(self.options.get('remove_border_objects'))
+        okButton = QPushButton("&OK")
+        okButton.clicked.connect(self._onOKButtonClicked)
+        cancelButton = QPushButton("&Cancel")
+        cancelButton.clicked.connect(self._onCancelButtonClicked)
+        buttonsLayout.addWidget(okButton)
+        buttonsLayout.addWidget(cancelButton)
+        formLayout.addRow(diameterLabel, self.diameterInput)
+        formLayout.addRow(cellprobeLabel, self.cellprobeThresholdInput)
+        formLayout.addRow(flowLabel, self.flowThresholdInput)
+        formLayout.addRow(minSizeLabel, self.minSizeInput)
+        formLayout.addWidget(self.removeCheckbox)
+        self.setLayout(mainLayout)
+
+
+
+    def diameterChanged(self):
+        pass
+
+
+    def cellprobThresholdChanged(self):
+        pass
+
+
+    def flowThresholdChanged(self):
+        pass
+
+
+    def minSizeChanged(self):
+        pass
+
+
+    def _onOKButtonClicked(self):
+        self.transferValues()
+        self.options.save()
+        self.options.load()
+        self.shut()
+
+
+    def transferValues(self):
+        self.options.set('diameter', float(self.diameterInput.text().strip()))
+        self.options.set('cellprob_threshold', float(self.cellprobeThresholdInput.text().strip()))
+        self.options.set('flow_threshold', float(self.flowThresholdInput.text().strip()))
+        self.options.set('min_size', float(self.minSizeInput.text().strip()))
+        self.options.set('remove_border_objects', (self.removeCheckbox.isChecked()))
+
+
+    def _onCancelButtonClicked(self):
+        self.shut()
+
+
+    def shut(self):
+        self.viewer.window.remove_dock_widget(self)
+        self.close()
+
