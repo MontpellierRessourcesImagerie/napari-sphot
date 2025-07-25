@@ -59,8 +59,20 @@ class NapariUtil:
         :type name: str
         :return: The layer with the given name if it exists and None otherwise
         """
+        layer = self.getLayerWithName(name)
+        if layer:
+            return layer.data
+        else:
+            return None
+
+
+    def getLayerWithName(self, name):
         for layer in self.viewer.layers:
             if layer.name == name:
-                return layer.data
+                return layer
         return None
 
+
+    def getDataAndScaleOfLayerWithName(self, name):
+        layer = self.getLayerWithName(name)
+        return layer.data, layer.scale

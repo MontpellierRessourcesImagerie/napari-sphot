@@ -15,6 +15,7 @@ from napari.utils.events import Event
 from napari.qt.threading import create_worker
 from sphot.image import Segmentation
 from sphot.image import SpotDetection
+from sphot.image import DecomposeDenseRegions
 from sphot.image import SpotPerCellAnalyzer
 from sphot.image import Correlator
 from sphot.measure import TableTool
@@ -34,7 +35,6 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         super().__init__()
         self.viewer = viewer
         self.bigFishApp = None
-        self.scale = 50 #@TODO: get the scale from the input image
         self.fieldWidth = 50
         self.comboMaxWidth = 150
         self.labelOfNucleus = 1
@@ -69,6 +69,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.viewer.layers.events.removed.connect(self.onLayerAddedOrRemoved)
         self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
                                                                   area='right', name='measurements', tabify=False)
+        self.decomposeDense = None
+        self.detection = None
+
 
 
     @classmethod
@@ -273,25 +276,23 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def _onSegmentImageOptionsClicked(self):
-        print("segmentation options button clicked")
         segmentationOptionsWidget = SegmentationOptionsWidget(self.viewer)
         self.viewer.window.add_dock_widget(segmentationOptionsWidget, area='right', name='Options of Segment Image',
                                                                       tabify = True)
 
 
     def _onDetectSpotsOptionsClicked(self):
-        print("detection options button clicked")
-        detectionOptionsWidget = self.getDetectionOptionsWidget()
+        detectionOptionsWidget = DetectionOptionsWidget(self.viewer)
         self.viewer.window.add_dock_widget(detectionOptionsWidget, area='right', name='Options of Detect Spots',
                                                                    tabify=True)
 
 
     def _onMedianFilterButtonClicked(self):
-        layer = self.getActiveLayer()
-        if not layer or not type(layer) is Image:
+        self.layer = self.getActiveLayer()
+        if not self.layer or not type(self.layer) is Image:
             return
         self.medianFilterSize = int(self.medianFilterSizeInput.text().strip())
-        self.medianFilter = MedianFilter(layer.data, radius=self.medianFilterSize, name=layer.name)
+        self.medianFilter = MedianFilter(self.layer.data, radius=self.medianFilterSize, name=self.layer.name)
         worker = create_worker(self.medianFilter.run,
                                _progress={'desc': 'Median Filter Running...'})
         worker.finished.connect(self.onMedianFilterFinished)
@@ -326,7 +327,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onMedianFilterFinished(self):
         self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
-                                                                  + "_median_" + str(self.medianFilterSize))
+                                                                  + "_median_" + str(self.medianFilterSize),
+                                                             scale=self.layer.scale
+                              )
 
 
     def onBackgroundSubtractionFinished(self):
@@ -341,10 +344,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def _onMeasureButtonClicked(self):
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         baseMeasurements = analyzer.getBaseMeasurements()
         nnMeasurements = analyzer.getNNMeasurements()
         nnMeasurements.pop('label')
@@ -366,13 +369,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         hull = analyzer.getConvexHull(label)
-        self.viewer.add_points(hull.points[hull.vertices], scale=(self.scale, self.scale, self.scale))
-        self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=(self.scale, self.scale, self.scale))
+        self.viewer.add_points(hull.points[hull.vertices], scale=scale)
+        self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=scale)
 
 
     def _onDelaunayButtonClicked(self):
@@ -380,12 +383,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         tess = analyzer.getDelaunay(label)
-        self.viewer.add_shapes(tess.points[tess.simplices], scale=(self.scale, self.scale, self.scale), shape_type='polygon')
+        self.viewer.add_shapes(tess.points[tess.simplices], scale=scale, shape_type='polygon')
 
 
     def _onVoronoiButtonClicked(self):
@@ -393,12 +396,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots,scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         regions = analyzer.getVoronoiRegions(label)
-        self.viewer.add_shapes(regions, scale=(self.scale, self.scale, self.scale), shape_type='polygon')
+        self.viewer.add_shapes(regions, scale=scale, shape_type='polygon')
 
 
     def _onSegmentImageButtonClicked(self):
@@ -423,7 +426,25 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.spotsLayer = self.getActiveLayer()
         if not self.spotsLayer or not type(self.spotsLayer) is Image:
             return
+        options = DetectionOptionsWidget(None).options
         self.detection = SpotDetection(self.spotsLayer.data)
+        self.detection.scale = (self.spotsLayer.scale[0].item(),
+                                self.spotsLayer.scale[1].item(),
+                                self.spotsLayer.scale[2].item())
+        self.detection.threshold = options.get("threshold")
+        self.detection.spotRadius = (options.get("radius_z"), options.get("radius_xy"), options.get("radius_xy"))
+        self.detection.shallRemoveDuplicates = options.get("remove_duplicates")
+        message = \
+            ("Running background spot detection with scale = {}, threshold = {}, spot radius = {}, "
+             " remove duplicates = {}, find threshold = {} on {}.")
+        notifications.show_info(
+            message.format(
+                self.detection.scale,
+                self.detection.threshold,
+                self.detection.spotRadius,
+                self.detection.shallRemoveDuplicates,
+                self.detection.shallFindThreshold,
+                self.spotsLayer.name))
         worker = create_worker(self.detection.run,
                                _progress={'total': 2, 'desc': 'Detecting spots...'})
         worker.finished.connect(self.onDetectionFinished)
@@ -436,10 +457,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         analyzer.calculateGFunction()
         envelop = analyzer.getEnvelopForNNDistances(label, 100)
         ax = plt.subplot()
@@ -447,7 +468,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax.set_xlabel('distances [nm]')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.nnDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
+        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
         plt.plot(xValues, envelop[0], 'r--')
         plt.plot(xValues, envelop[1], 'g--')
         plt.plot(xValues, envelop[2], 'g--')
@@ -461,10 +482,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         analyzer.calculateHFunction()
         envelop = analyzer.getEnvelopForAllDistances(label, 100)
         ax = plt.subplot()
@@ -472,7 +493,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax.set_xlabel('distances [nm]')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.allDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
+        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
         plt.plot(xValues, envelop[0], 'r--')
         plt.plot(xValues, envelop[1], 'g--')
         plt.plot(xValues, envelop[2], 'g--')
@@ -486,10 +507,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots = self.napariUtil.getDataOfLayerWithName(text)
+        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, self.scale)
+        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         analyzer.calculateFFunction()
         envelop = analyzer.getEnvelopForEmptySpaceDistances(label, 100)
         ax = plt.subplot()
@@ -497,7 +518,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax.set_xlabel('distances [nm]')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.emptySpaceDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale)))
+        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
         plt.plot(xValues, envelop[0], 'r--')
         plt.plot(xValues, envelop[1], 'g--')
         plt.plot(xValues, envelop[2], 'g--')
@@ -551,7 +572,30 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def onDetectionFinished(self):
-        self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
+        options = DetectionOptionsWidget(None).options
+        doDecomposeDense = options.get("decompose_dense")
+        if not doDecomposeDense:
+            self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
+            return
+        self.decomposeDense = DecomposeDenseRegions(self.spotsLayer.data, self.detection.spots)
+        self.decomposeDense.voxelSize = self.spotsLayer.scale
+        self.decomposeDense.spotRadius = (options.get("radius_z"), options.get("radius_xy"), options.get("radius_xy"))
+        self.decomposeDense.alpha = options.get("alpha")
+        self.decomposeDense.beta = options.get("beta")
+        self.decomposeDense.gamma = options.get("gamma")
+        worker = create_worker(self.decomposeDense,
+                               _progress={'total': 2, 'desc': 'Decomposing dense regions...'})
+        worker.finished.connect(self.onDecomposeFinished)
+        worker.start()
+
+
+    def onDecomposeFinished(self):
+        options = DetectionOptionsWidget(None).options
+        self.viewer.add_points(self.decomposeDense.decomposedSpots,
+                               scale=self.spotsLayer.scale, blending='additive', size=1)
+        if options.get('display_avg_spot') and self.decomposeDense.referenceSpot:
+            self.viewer.add_image(self.decomposeDense.referenceSpot, scale=self.spotsLayer.scale, blending='additive',
+                                  name="reference spot")
 
 
     def gFunctionInputChanged(self):
@@ -594,13 +638,147 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
 
-class SegmentationOptionsWidget(QWidget):
+class OptionsWidget(QWidget):
+
+
+    def __init__(self, viewer, app, name):
+        super().__init__()
+        self.viewer = viewer
+        self.application = app
+        self.name = name
+        self.options = Options(self.application, self.name)
+        self.fieldWidth = 50
+
+
+    def _onOKButtonClicked(self):
+        self.transferValues()
+        self.options.save()
+        self.options.load()
+        self.shut()
+
+
+    def _onCancelButtonClicked(self):
+        self.shut()
+
+
+    def shut(self):
+        self.viewer.window.remove_dock_widget(self)
+        self.close()
+
+
+    def transferValues(self):
+        self.subclassResponsability()
+
+
+    def ignoreChange(self):
+        pass
+
+
+
+class DetectionOptionsWidget(OptionsWidget):
 
 
     def __init__(self, viewer):
-        super().__init__()
-        self.viewer = viewer
-        self.options = Options("napari-sphot", "segmentation")
+        super().__init__(viewer, "napari-sphot", "detection")
+        self.options.setDefaultValues(
+            {
+                'threshold': 0.01,
+                'radius_xy': 2.5,
+                'radius_z': 2.5,
+                'remove_duplicates': True,
+                'decompose_dense': True,
+                'alpha': 0.5,
+                'beta': 1.0,
+                'gamma': 5.0,
+                'display_avg_spot': True
+            }
+        )
+        self.options.load()
+        self.thresholdInput = None
+        self.radiusXYInput = None
+        self.radiusZInput = None
+        self.removeDuplicatesCheckBox = None
+        self.decomposeDenseCheckBox = None
+        self.decomposeDenseCheckBox = None
+        self.alphaInput = None
+        self.betaInput = None
+        self.gammaInput = None
+        self.displayMeanSpotCheckBox = None
+        self.createLayout()
+
+
+    def createLayout(self):
+        mainLayout = QVBoxLayout()
+        formLayout = QFormLayout()
+        buttonsLayout = QHBoxLayout()
+        mainLayout.addLayout(formLayout)
+        mainLayout.addLayout(buttonsLayout)
+        thresholdLabel, self.thresholdInput = WidgetTool.getLineInput(self, "Threshold: ",
+                                                                    self.options.get('threshold'),
+                                                                    self.fieldWidth,
+                                                                    self.ignoreChange)
+        radiusXYLabel, self.radiusXYInput = WidgetTool.getLineInput(self, "Radius xy: ",
+                                                                      self.options.get('radius_xy'),
+                                                                      self.fieldWidth,
+                                                                      self.ignoreChange)
+        radiusZLabel, self.radiusZInput = WidgetTool.getLineInput(self, "Radius z: ",
+                                                                    self.options.get('radius_z'),
+                                                                    self.fieldWidth,
+                                                                    self.ignoreChange)
+        self.removeDuplicatesCheckBox = QCheckBox(text="Remove Duplicates")
+        self.removeDuplicatesCheckBox.setChecked(self.options.get('remove_duplicates'))
+        self.decomposeDenseCheckBox = QCheckBox(text="Decompose Dense")
+        self.decomposeDenseCheckBox.setChecked(self.options.get('decompose_dense'))
+        alphaLabel, self.alphaInput = WidgetTool.getLineInput(self, "Alpha: ",
+                                                                  self.options.get('alpha'),
+                                                                  self.fieldWidth,
+                                                                  self.ignoreChange)
+        betaLabel, self.betaInput = WidgetTool.getLineInput(self, "Beta: ",
+                                                              self.options.get('beta'),
+                                                              self.fieldWidth,
+                                                              self.ignoreChange)
+        gammaLabel, self.gammaInput = WidgetTool.getLineInput(self, "Gamma: ",
+                                                              self.options.get('gamma'),
+                                                              self.fieldWidth,
+                                                              self.ignoreChange)
+        self.displayMeanSpotCheckBox = QCheckBox(text="Display Avg. Spot")
+        self.displayMeanSpotCheckBox.setChecked(self.options.get('display_avg_spot'))
+        okButton = QPushButton("&OK")
+        okButton.clicked.connect(self._onOKButtonClicked)
+        cancelButton = QPushButton("&Cancel")
+        cancelButton.clicked.connect(self._onCancelButtonClicked)
+        buttonsLayout.addWidget(okButton)
+        buttonsLayout.addWidget(cancelButton)
+
+        formLayout.addRow(thresholdLabel, self.thresholdInput)
+        formLayout.addRow(radiusXYLabel, self.radiusXYInput)
+        formLayout.addRow(radiusZLabel, self.radiusZInput)
+        formLayout.addWidget(self.removeDuplicatesCheckBox)
+        formLayout.addWidget(self.decomposeDenseCheckBox)
+        formLayout.addRow(alphaLabel, self.alphaInput)
+        formLayout.addRow(betaLabel, self.betaInput)
+        formLayout.addRow(gammaLabel, self.gammaInput)
+        formLayout.addWidget(self.displayMeanSpotCheckBox)
+        self.setLayout(mainLayout)
+
+
+    def transferValues(self):
+        self.options.set('threshold', float(self.thresholdInput.text().strip()))
+        self.options.set('radius_xy', float(self.radiusXYInput.text().strip()))
+        self.options.set('radius_z', float(self.radiusZInput.text().strip()))
+        self.options.set('remove_duplicates', (self.removeDuplicatesCheckBox.isChecked()))
+        self.options.set('decompose_dense', (self.decomposeDenseCheckBox.isChecked()))
+        self.options.set('alpha', float(self.alphaInput.text().strip()))
+        self.options.set('beta', float(self.betaInput.text().strip()))
+        self.options.set('gamma', float(self.gammaInput.text().strip()))
+        self.options.set('display_avg_spot', (self.displayMeanSpotCheckBox.isChecked()))
+
+
+class SegmentationOptionsWidget(OptionsWidget):
+
+
+    def __init__(self, viewer):
+        super().__init__(viewer, "napari-sphot", "segmentation")
         self.options.setDefaultValues(
             {
                 'diameter': 90.0,
@@ -611,7 +789,6 @@ class SegmentationOptionsWidget(QWidget):
             }
         )
         self.options.load()
-        self.fieldWidth = 50
         self.diameterInput = None
         self.cellprobeThresholdInput = None
         self.flowThresholdInput = None
@@ -642,7 +819,7 @@ class SegmentationOptionsWidget(QWidget):
                                                                                self.options.get('min_size'),
                                                                                self.fieldWidth,
                                                                                self.minSizeChanged)
-        self.removeCheckbox = QCheckBox(text="remove edge")
+        self.removeCheckbox = QCheckBox(text="Remove Edge")
         self.removeCheckbox.setChecked(self.options.get('remove_border_objects'))
         okButton = QPushButton("&OK")
         okButton.clicked.connect(self._onOKButtonClicked)
@@ -675,13 +852,6 @@ class SegmentationOptionsWidget(QWidget):
         pass
 
 
-    def _onOKButtonClicked(self):
-        self.transferValues()
-        self.options.save()
-        self.options.load()
-        self.shut()
-
-
     def transferValues(self):
         self.options.set('diameter', float(self.diameterInput.text().strip()))
         self.options.set('cellprob_threshold', float(self.cellprobeThresholdInput.text().strip()))
@@ -690,11 +860,4 @@ class SegmentationOptionsWidget(QWidget):
         self.options.set('remove_border_objects', (self.removeCheckbox.isChecked()))
 
 
-    def _onCancelButtonClicked(self):
-        self.shut()
-
-
-    def shut(self):
-        self.viewer.window.remove_dock_widget(self)
-        self.close()
 
