@@ -435,7 +435,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.detection.spotRadius = (options.get("radius_z"), options.get("radius_xy"), options.get("radius_xy"))
         self.detection.shallRemoveDuplicates = options.get("remove_duplicates")
         message = \
-            ("Running background spot detection with scale = {}, threshold = {}, spot radius = {}, "
+            ("Running spot detection with scale = {}, threshold = {}, spot radius = {}, "
              " remove duplicates = {}, find threshold = {} on {}.")
         notifications.show_info(
             message.format(
@@ -578,12 +578,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
             return
         self.decomposeDense = DecomposeDenseRegions(self.spotsLayer.data, self.detection.spots)
-        self.decomposeDense.voxelSize = self.spotsLayer.scale
+        self.decomposeDense.voxelSize = tuple(self.spotsLayer.scale)
         self.decomposeDense.spotRadius = (options.get("radius_z"), options.get("radius_xy"), options.get("radius_xy"))
         self.decomposeDense.alpha = options.get("alpha")
         self.decomposeDense.beta = options.get("beta")
         self.decomposeDense.gamma = options.get("gamma")
-        worker = create_worker(self.decomposeDense,
+        worker = create_worker(self.decomposeDense.run,
                                _progress={'total': 2, 'desc': 'Decomposing dense regions...'})
         worker.finished.connect(self.onDecomposeFinished)
         worker.start()
@@ -592,9 +592,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def onDecomposeFinished(self):
         options = DetectionOptionsWidget(None).options
         self.viewer.add_points(self.decomposeDense.decomposedSpots,
-                               scale=self.spotsLayer.scale, blending='additive', size=1)
-        if options.get('display_avg_spot') and self.decomposeDense.referenceSpot:
-            self.viewer.add_image(self.decomposeDense.referenceSpot, scale=self.spotsLayer.scale, blending='additive',
+                               scale=tuple(self.spotsLayer.scale), blending='additive', size=1)
+        if options.get('display_avg_spot') and not self.decomposeDense.referenceSpot is None:
+            self.viewer.add_image(self.decomposeDense.referenceSpot, scale=tuple(self.spotsLayer.scale),
+                                  blending='additive',
                                   name="reference spot")
 
 
