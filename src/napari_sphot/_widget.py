@@ -11,6 +11,7 @@ from sphot.filter import MedianFilter
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QGroupBox, QCheckBox
 from napari.layers import Image
+from napari.layers import Labels
 from napari.utils.events import Event
 from napari.qt.threading import create_worker
 from sphot.image import Segmentation
@@ -18,6 +19,9 @@ from sphot.image import SpotDetection
 from sphot.image import DecomposeDenseRegions
 from sphot.image import SpotPerCellAnalyzer
 from sphot.image import Correlator
+from sphot.image import FFunctionTask
+from sphot.image import GFunctionTask
+from sphot.image import HFunctionTask
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
@@ -46,6 +50,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.backgroundSigmaXY = 2.3
         self.backgroundSigmaZ = 2.3
         self.segmentation = None
+        self.keepLabelsText = ""
+        self.keepLabelsInput = None
         self.layer = None
         self.cropImageLabelsCombo = None
         self.cropImageCombo = None
@@ -57,6 +63,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.gFunctionInput = None
         self.gFunctionSpotsCombo = None
         self.gFunctionLabelsCombo = None
+        self.fFunctionTask = None
+        self.gFunctionTask = None
+        self.hFunctionTask = None
         self.measurements = {}
         self.table = TableView(self.measurements)
         self.napariUtil = NapariUtil(self.viewer)
@@ -106,17 +115,30 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
         segmentImageOptionsButton = self.getOptionsButton(self._onSegmentImageOptionsClicked)
         segmentImageOptionsButton.setMaximumWidth(50)
+
+        keepLabelsLabel, self.keepLabelsInput = WidgetTool.getLineInput(self, "Keep labels: ",
+                                                                                self.keepLabelsText,
+                                                                                self.fieldWidth*2,
+                                                                                self.keepLabelsChanged)
+        keepLabelsButton = QPushButton("Keep Labels")
+        keepLabelsButton.clicked.connect(self._onKeepLabelsButtonClicked)
+
         detectSpotsButton = QPushButton("Detect Spots")
         detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
         detectSpotsOptionsButton = self.getOptionsButton(self._onDetectSpotsOptionsClicked)
         detectSpotsOptionsButton.setMaximumWidth(50)
         segmentationLayout = QHBoxLayout()
+        keepLabelsLayout = QHBoxLayout()
         detectionLayout = QHBoxLayout()
         segmentationLayout.addWidget(segmentImageButton)
         segmentationLayout.addWidget(segmentImageOptionsButton)
+        keepLabelsLayout.addWidget(keepLabelsLabel)
+        keepLabelsLayout.addWidget(self.keepLabelsInput)
+        keepLabelsLayout.addWidget(keepLabelsButton)
         detectionLayout.addWidget(detectSpotsButton)
         detectionLayout.addWidget(detectSpotsOptionsButton)
         mainLayout.addLayout(segmentationLayout)
+        mainLayout.addLayout(keepLabelsLayout)
         mainLayout.addLayout(detectionLayout)
         groupBoxLayout.setLayout(mainLayout)
         return groupBoxLayout
@@ -328,17 +350,23 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def onMedianFilterFinished(self):
         self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
                                                                   + "_median_" + str(self.medianFilterSize),
-                                                             scale=self.layer.scale
+                                                             scale=self.layer.scale,
+                                                             colormap=self.layer.colormap,
+                                                             units=self.layer.units,
+                                                             blending=self.layer.blending
                               )
 
 
     def onBackgroundSubtractionFinished(self):
         self.viewer.add_image(self.bigFishApp.getResult(),
-                              name = self.layer.name +
+                              name=self.layer.name +
                                      "_background_" +
                                      str(self.backgroundSigmaZ) + "-"
                                      + str(self.backgroundSigmaXY),
-                              scale = self.layer.scale
+                              scale=self.layer.scale,
+                              colormap=self.layer.colormap,
+                              units=self.layer.units,
+                              blending=self.layer.blending
                               )
 
 
@@ -388,7 +416,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         labels = self.napariUtil.getDataOfLayerWithName(text)
         analyzer = SpotPerCellAnalyzer(spots, labels, scale)
         tess = analyzer.getDelaunay(label)
-        self.viewer.add_shapes(tess.points[tess.simplices], scale=scale, shape_type='polygon')
+        self.viewer.add_shapes(tess.points[tess.simplices], scale=scale, shape_type='path')
 
 
     def _onVoronoiButtonClicked(self):
@@ -420,6 +448,19 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                                _progress={'total': 5, 'desc': 'Segmenting cells...'})
         worker.finished.connect(self.onSegmentationFinished)
         worker.start()
+
+
+    def _onKeepLabelsButtonClicked(self):
+        self.layer = self.getActiveLayer()
+        if not self.layer or not type(self.layer) is Labels:
+            return
+        text = self.keepLabelsInput.text().strip()
+        labelTextList = text.split(',')
+        if not labelTextList:
+            return
+        labelList = [int(labelText) for labelText in labelTextList]
+        newLabels = Segmentation.keepLabels(self.layer.data, labelList)
+        self.viewer.add_labels(newLabels, scale=self.layer.scale, blending='additive')
 
 
     def _onDetectSpotsButtonClicked(self):
@@ -460,20 +501,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        analyzer.calculateGFunction()
-        envelop = analyzer.getEnvelopForNNDistances(label, 100)
-        ax = plt.subplot()
-        analyzer.nnEcdfs[label].cdf.plot(ax)
-        ax.set_xlabel('distances [nm]')
-        ax.set_ylabel('Empirical CDF')
-        maxDist = np.max(analyzer.nnDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
-        plt.plot(xValues, envelop[0], 'r--')
-        plt.plot(xValues, envelop[1], 'g--')
-        plt.plot(xValues, envelop[2], 'g--')
-        plt.plot(xValues, envelop[3], 'r--')
-        plt.show()
+        self.gFunctionTask = GFunctionTask(spots, labels, scale, label)
+        self.gFunctionTask.nrOfSamples = 100
+        worker = create_worker(self.gFunctionTask.run,
+                      _progress={'desc': 'Calculating G-Function...'}
+                      )
+        worker.finished.connect(self.ongFunctionTaskFinished)
+        worker.start()
 
 
     def _onHFunctionButtonClicked(self):
@@ -485,20 +519,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        analyzer.calculateHFunction()
-        envelop = analyzer.getEnvelopForAllDistances(label, 100)
-        ax = plt.subplot()
-        analyzer.adEcdfs[label].cdf.plot(ax)
-        ax.set_xlabel('distances [nm]')
-        ax.set_ylabel('Empirical CDF')
-        maxDist = np.max(analyzer.allDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
-        plt.plot(xValues, envelop[0], 'r--')
-        plt.plot(xValues, envelop[1], 'g--')
-        plt.plot(xValues, envelop[2], 'g--')
-        plt.plot(xValues, envelop[3], 'r--')
-        plt.show()
+        self.hFunctionTask = HFunctionTask(spots, labels, scale, label)
+        self.hFunctionTask.nrOfSamples = 100
+        worker = create_worker(self.hFunctionTask.run,
+                               _progress={'desc': 'Calculating H-Function...'}
+                               )
+        worker.finished.connect(self.onhFunctionTaskFinished)
+        worker.start()
 
 
     def _onFFunctionButtonClicked(self):
@@ -510,15 +537,56 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        analyzer.calculateFFunction()
-        envelop = analyzer.getEnvelopForEmptySpaceDistances(label, 100)
+        self.fFunctionTask = FFunctionTask(spots, labels, scale, label)
+        self.fFunctionTask.nrOfSamples = 100
+        worker = create_worker(self.fFunctionTask.run,
+                      _progress={'desc': 'Calculating F-Function...'}
+                      )
+        worker.finished.connect(self.onfFunctionTaskFinished)
+        worker.start()
+
+
+    def onfFunctionTaskFinished(self):
         ax = plt.subplot()
-        analyzer.esEcdfs[label].cdf.plot(ax)
+        analyzer = self.fFunctionTask.analyzer
+        analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(ax)
         ax.set_xlabel('distances [nm]')
         ax.set_ylabel('Empirical CDF')
-        maxDist = np.max(analyzer.emptySpaceDistances[label][0])
-        xValues = np.array(list(range(0, math.floor(maxDist + 1), analyzer.scale[1])))
+        maxDist = np.max(analyzer.emptySpaceDistances[self.fFunctionTask.label][0])
+        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+        envelop = self.fFunctionTask.envelop
+        plt.plot(xValues, envelop[0], 'r--')
+        plt.plot(xValues, envelop[1], 'g--')
+        plt.plot(xValues, envelop[2], 'g--')
+        plt.plot(xValues, envelop[3], 'r--')
+        plt.show()
+
+
+    def ongFunctionTaskFinished(self):
+        ax = plt.subplot()
+        analyzer = self.gFunctionTask.analyzer
+        analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(ax)
+        ax.set_xlabel('distances [nm]')
+        ax.set_ylabel('Empirical CDF')
+        maxDist = np.max(analyzer.nnDistances[self.gFunctionTask.label][0])
+        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+        envelop = self.gFunctionTask.envelop
+        plt.plot(xValues, envelop[0], 'r--')
+        plt.plot(xValues, envelop[1], 'g--')
+        plt.plot(xValues, envelop[2], 'g--')
+        plt.plot(xValues, envelop[3], 'r--')
+        plt.show()
+
+
+    def onhFunctionTaskFinished(self):
+        ax = plt.subplot()
+        analyzer = self.hFunctionTask.analyzer
+        analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(ax)
+        ax.set_xlabel('distances [nm]')
+        ax.set_ylabel('Empirical CDF')
+        maxDist = np.max(analyzer.allDistances[self.hFunctionTask.label][0])
+        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+        envelop = self.hFunctionTask.envelop
         plt.plot(xValues, envelop[0], 'r--')
         plt.plot(xValues, envelop[1], 'g--')
         plt.plot(xValues, envelop[2], 'g--')
@@ -530,14 +598,21 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text = self.cropImageLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         text = self.cropImageCombo.currentText()
-        image = self.napariUtil.getDataOfLayerWithName(text)
+        self.layer = self.napariUtil.getLayerWithName(text)
+        image = self.layer.data
         self.cropLabel = int(self.cropLabelInput.text().strip())
         if not self.cropLabel:
             self.cropLabel = 1
             return
         analyzer = SpotPerCellAnalyzer(None, labels, 1)
         croppedImage = analyzer.cropImageForLabel(image, self.cropLabel)
-        self.viewer.add_image(croppedImage, name=text + "_c" + str(self.cropLabel))
+        self.viewer.add_image(croppedImage,
+                              name=text + "_c" + str(self.cropLabel),
+                              scale=self.layer.scale,
+                              colormap=self.layer.colormap,
+                              units=self.layer.units,
+                              blending=self.layer.blending
+                              )
 
 
     def _onCorrelationButtonPressed(self):
@@ -545,12 +620,17 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text2 = self.ccInputBCombo.currentText()
         if not text1 or not text2:
             return
+        self.layer = self.napariUtil.getLayerWithName(text1)
         imageA = self.napariUtil.getDataOfLayerWithName(text1)
         imageB = self.napariUtil.getDataOfLayerWithName(text2)
         correlator = Correlator(imageA, imageB)
         correlator.calculateCrossCorrelationProfile()
         self.viewer.add_image(correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
-                                                           colormap='inferno', blending='additive')
+                                                           colormap='inferno',
+                                                           blending='additive',
+                                                           scale=self.layer.scale,
+                                                           units=self.layer.units,
+                              )
         plt.plot(correlator.correlationProfile[0], correlator.correlationProfile[1])
         data = np.asarray([correlator.correlationProfile[0], correlator.correlationProfile[1]])
         np.savetxt("corr.: " + text1 + "-" + text2 + ".csv", data, delimiter=",")
@@ -594,9 +674,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.viewer.add_points(self.decomposeDense.decomposedSpots,
                                scale=tuple(self.spotsLayer.scale), blending='additive', size=1)
         if options.get('display_avg_spot') and not self.decomposeDense.referenceSpot is None:
-            self.viewer.add_image(self.decomposeDense.referenceSpot, scale=tuple(self.spotsLayer.scale),
-                                  blending='additive',
-                                  name="reference spot")
+            self.viewer.add_image(self.decomposeDense.referenceSpot,
+                                  scale=tuple(self.spotsLayer.scale),
+                                  name="reference spot",
+                                  colormap=self.spotsLayer.colormap,
+                                  units=self.spotsLayer.units,
+                                  blending=self.spotsLayer.blending
+                                  )
 
 
     def gFunctionInputChanged(self):
@@ -616,6 +700,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def backgroundSigmaZChanged(self):
+        pass
+
+
+    def keepLabelsChanged(self):
         pass
 
 
@@ -859,6 +947,5 @@ class SegmentationOptionsWidget(OptionsWidget):
         self.options.set('flow_threshold', float(self.flowThresholdInput.text().strip()))
         self.options.set('min_size', float(self.minSizeInput.text().strip()))
         self.options.set('remove_border_objects', (self.removeCheckbox.isChecked()))
-
 
 
