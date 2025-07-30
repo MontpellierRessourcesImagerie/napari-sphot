@@ -17,12 +17,15 @@ from napari.qt.threading import create_worker
 from sphot.image import Segmentation
 from sphot.image import SpotDetection
 from sphot.image import DecomposeDenseRegions
-from sphot.image import SpotPerCellAnalyzer
 from sphot.image import Correlator
 from sphot.image import FFunctionTask
 from sphot.image import GFunctionTask
 from sphot.image import HFunctionTask
-from sphot.measure import TableTool
+from sphot.image import ConvexHullTask
+from sphot.image import DelaunayTask
+from sphot.image import VoronoiTask
+from sphot.image import MeasureTask
+from sphot.image import CropLabelTask
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
 from napari_sphot.qtutil import TableView
@@ -66,6 +69,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.fFunctionTask = None
         self.gFunctionTask = None
         self.hFunctionTask = None
+        self.convexHullTask = None
+        self.delaunayTask = None
+        self.voronoiTask = None
+        self.measureTask = None
+        self.correlator = None
+        self.cropLabelTask = None
         self.measurements = {}
         self.table = TableView(self.measurements)
         self.napariUtil = NapariUtil(self.viewer)
@@ -322,11 +331,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def _onSubtractBackgroundButtonClicked(self):
-
         self.backgroundSigmaXY = float(self.backgroundSigmaXYInput.text().strip())
         self.backgroundSigmaZ = float(self.backgroundSigmaZInput.text().strip())
         self.bigFishApp = BigfishApp()
-        activeLayer = self.viewer.layers.selection.active
+        activeLayer =  self.getActiveLayer()
         if not activeLayer:
             notifications.show_error("Subtract background needs an image!")
             return
@@ -375,22 +383,21 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        baseMeasurements = analyzer.getBaseMeasurements()
-        nnMeasurements = analyzer.getNNMeasurements()
-        nnMeasurements.pop('label')
-        TableTool.addColumnsTableAToB(nnMeasurements, baseMeasurements)
-        convexHullMeasurements = analyzer.getConvexHullMeasurements()
-        convexHullMeasurements.pop('label')
-        TableTool.addColumnsTableAToB(convexHullMeasurements, baseMeasurements)
-        delaunayMeasurements = analyzer.getDelaunayMeasurements()
-        delaunayMeasurements.pop('label')
-        TableTool.addColumnsTableAToB(delaunayMeasurements, baseMeasurements)
-        self.measurements = baseMeasurements
+        self.measureTask = MeasureTask(spots, labels, scale)
+        worker = create_worker(self.measureTask.run,
+                               _progress={'desc': 'Measuring Features...'})
+        worker.finished.connect(self.onMeasureTaskFinished)
+        worker.start()
+
+
+    def onMeasureTaskFinished(self):
         self.tableDockWidget.close()
-        self.table = TableView(self.measurements)
-        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table, area='right', name='measurements',
+        self.table = TableView(self.measureTask.table)
+        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
+                                                                  area='right',
+                                                                  name='measurements',
                                                                   tabify=False)
+
 
     def _onConvexHullButtonClicked(self):
         label = int(self.gFunctionInput.text().strip())
@@ -400,8 +407,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        hull = analyzer.getConvexHull(label)
+        self.convexHullTask = ConvexHullTask(spots, labels, scale, label)
+        worker = create_worker(self.convexHullTask.run,
+                               _progress={'desc': 'Calculating Convex Hull...'})
+        worker.finished.connect(self.onConvexHullTaskFinished)
+        worker.start()
+
+
+    def onConvexHullTaskFinished(self):
+        hull = self.convexHullTask.result
+        scale = self.convexHullTask.scale
         self.viewer.add_points(hull.points[hull.vertices], scale=scale)
         self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=scale)
 
@@ -414,9 +429,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        tess = analyzer.getDelaunay(label)
-        self.viewer.add_shapes(tess.points[tess.simplices], scale=scale, shape_type='path')
+        self.delaunayTask = DelaunayTask(spots, labels, scale, label)
+        worker = create_worker(self.delaunayTask.run,
+                               _progress={'desc': 'Calculating Delaunay Tesselation...'})
+        worker.finished.connect(self.onDelaunayTaskFinished)
+        worker.start()
+
+
+    def onDelaunayTaskFinished(self):
+        tess = self.delaunayTask.result
+        self.viewer.add_shapes(tess.points[tess.simplices], scale=self.delaunayTask.scale, shape_type='path')
 
 
     def _onVoronoiButtonClicked(self):
@@ -427,9 +449,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots,scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        analyzer = SpotPerCellAnalyzer(spots, labels, scale)
-        regions = analyzer.getVoronoiRegions(label)
-        self.viewer.add_shapes(regions, scale=scale, shape_type='polygon')
+        self.voronoiTask = VoronoiTask(spots, labels, scale, label)
+        worker = create_worker(self.voronoiTask.run,
+                               _progress={'desc': 'Calculating Voronoi Tesselation...'})
+        worker.finished.connect(self.onVoronoiTaskFinished)
+        worker.start()
+
+
+    def onVoronoiTaskFinished(self):
+        regions = self.voronoiTask.result
+        self.viewer.add_shapes(regions, scale=self.voronoiTask.scale, shape_type='polygon')
 
 
     def _onSegmentImageButtonClicked(self):
@@ -604,9 +633,17 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not self.cropLabel:
             self.cropLabel = 1
             return
-        analyzer = SpotPerCellAnalyzer(None, labels, 1)
-        croppedImage = analyzer.cropImageForLabel(image, self.cropLabel)
-        self.viewer.add_image(croppedImage,
+        self.cropLabelTask = CropLabelTask(labels, image, self.cropLabel)
+        worker = create_worker(self.cropLabelTask.run,
+                               _progress={'desc': 'Cropping image...'}
+                               )
+        worker.finished.connect(self.onCropLabelTaskFinished)
+        worker.start()
+
+
+    def onCropLabelTaskFinished(self):
+        text = self.cropImageLabelsCombo.currentText()
+        self.viewer.add_image(self.cropLabelTask.result,
                               name=text + "_c" + str(self.cropLabel),
                               scale=self.layer.scale,
                               colormap=self.layer.colormap,
@@ -623,16 +660,26 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.layer = self.napariUtil.getLayerWithName(text1)
         imageA = self.napariUtil.getDataOfLayerWithName(text1)
         imageB = self.napariUtil.getDataOfLayerWithName(text2)
-        correlator = Correlator(imageA, imageB)
-        correlator.calculateCrossCorrelationProfile()
-        self.viewer.add_image(correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
+        self.correlator = Correlator(imageA, imageB)
+        worker = create_worker(self.correlator.calculateCrossCorrelationProfile,
+                               _progress={'desc': 'Calculating Cross-Correlation...'}
+                               )
+        worker.finished.connect(self.onCrossCorrelationFinished)
+        worker.start()
+
+
+    def onCrossCorrelationFinished(self):
+        text1 = self.ccInputACombo.currentText()
+        text2 = self.ccInputBCombo.currentText()
+        self.correlator.calculateCrossCorrelationProfile()
+        self.viewer.add_image(self.correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
                                                            colormap='inferno',
                                                            blending='additive',
                                                            scale=self.layer.scale,
                                                            units=self.layer.units,
                               )
-        plt.plot(correlator.correlationProfile[0], correlator.correlationProfile[1])
-        data = np.asarray([correlator.correlationProfile[0], correlator.correlationProfile[1]])
+        plt.plot(self.correlator.correlationProfile[0], self.correlator.correlationProfile[1])
+        data = np.asarray([self.correlator.correlationProfile[0], self.correlator.correlationProfile[1]])
         np.savetxt("corr.: " + text1 + "-" + text2 + ".csv", data, delimiter=",")
         plt.show()
 
@@ -709,6 +756,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onLayerAddedOrRemoved(self, event: Event):
         self.updateLayerSelectionComboBoxes()
+
+
+    def onImageLoaded(self, event: Event):
+        print("image loaded")
+        print(type(event), event)
+
 
 
     def updateLayerSelectionComboBoxes(self):
