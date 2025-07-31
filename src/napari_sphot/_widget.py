@@ -26,6 +26,7 @@ from sphot.image import DelaunayTask
 from sphot.image import VoronoiTask
 from sphot.image import MeasureTask
 from sphot.image import CropLabelTask
+from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.napari_util import NapariUtil
 from napari_sphot.qtutil import TableView
@@ -356,17 +357,18 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def onMedianFilterFinished(self):
-        self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
+        layer = self.viewer.add_image(self.medianFilter.getResult(), name=self.medianFilter.getName()
                                                                   + "_median_" + str(self.medianFilterSize),
                                                              scale=self.layer.scale,
                                                              colormap=self.layer.colormap,
                                                              units=self.layer.units,
                                                              blending=self.layer.blending
                               )
+        NapariUtil.copyOriginalPath(self.layer, layer)
 
 
     def onBackgroundSubtractionFinished(self):
-        self.viewer.add_image(self.bigFishApp.getResult(),
+        layer = self.viewer.add_image(self.bigFishApp.getResult(),
                               name=self.layer.name +
                                      "_background_" +
                                      str(self.backgroundSigmaZ) + "-"
@@ -376,10 +378,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                               units=self.layer.units,
                               blending=self.layer.blending
                               )
+        NapariUtil.copyOriginalPath(self.layer, layer)
 
 
     def _onMeasureButtonClicked(self):
         text = self.gFunctionSpotsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
@@ -391,8 +395,17 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def onMeasureTaskFinished(self):
+        path = NapariUtil.getOriginalPath(self.layer)
+        filename = os.path.basename(path)
+        dirname = os.path.dirname(path)
+        self.measureTask.table['image'] = [filename] * len(self.measureTask.table['label'])
+        self.measureTask.table['folder'] = [dirname] * len(self.measureTask.table['label'])
         self.tableDockWidget.close()
-        self.table = TableView(self.measureTask.table)
+        if self.measurements:
+            TableTool.addTableAToB(self.measureTask.table, self.measurements)
+        else:
+            self.measurements = self.measureTask.table
+        self.table = TableView(self.measurements)
         self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
                                                                   area='right',
                                                                   name='measurements',
@@ -489,7 +502,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         labelList = [int(labelText) for labelText in labelTextList]
         newLabels = Segmentation.keepLabels(self.layer.data, labelList)
-        self.viewer.add_labels(newLabels, scale=self.layer.scale, blending='additive')
+        layer = self.viewer.add_labels(newLabels, scale=self.layer.scale, blending='additive')
+        NapariUtil.copyOriginalPath(self.layer, layer)
 
 
     def _onDetectSpotsButtonClicked(self):
@@ -643,13 +657,14 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onCropLabelTaskFinished(self):
         text = self.cropImageLabelsCombo.currentText()
-        self.viewer.add_image(self.cropLabelTask.result,
+        layer = self.viewer.add_image(self.cropLabelTask.result,
                               name=text + "_c" + str(self.cropLabel),
                               scale=self.layer.scale,
                               colormap=self.layer.colormap,
                               units=self.layer.units,
                               blending=self.layer.blending
                               )
+        NapariUtil.copyOriginalPath(self.layer, layer)
 
 
     def _onCorrelationButtonPressed(self):
@@ -672,12 +687,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text1 = self.ccInputACombo.currentText()
         text2 = self.ccInputBCombo.currentText()
         self.correlator.calculateCrossCorrelationProfile()
-        self.viewer.add_image(self.correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
+        layer = self.viewer.add_image(self.correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
                                                            colormap='inferno',
                                                            blending='additive',
                                                            scale=self.layer.scale,
                                                            units=self.layer.units,
                               )
+        NapariUtil.copyOriginalPath(self.layer, layer)
         plt.plot(self.correlator.correlationProfile[0], self.correlator.correlationProfile[1])
         data = np.asarray([self.correlator.correlationProfile[0], self.correlator.correlationProfile[1]])
         np.savetxt("corr.: " + text1 + "-" + text2 + ".csv", data, delimiter=",")
@@ -695,14 +711,19 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
 
     def onSegmentationFinished(self):
-        self.viewer.add_labels(self.segmentation.labels, scale=self.layer.scale, blending='additive')
+        layer = self.viewer.add_labels(self.segmentation.labels,
+                               scale=self.layer.scale,
+                               blending='additive')
+        NapariUtil.copyOriginalPath(self.layer, layer)
+
 
 
     def onDetectionFinished(self):
         options = DetectionOptionsWidget(None).options
         doDecomposeDense = options.get("decompose_dense")
         if not doDecomposeDense:
-            self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
+            layer = self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
+            NapariUtil.copyOriginalPath(self.spotsLayer, layer)
             return
         self.decomposeDense = DecomposeDenseRegions(self.spotsLayer.data, self.detection.spots)
         self.decomposeDense.voxelSize = tuple(self.spotsLayer.scale)
@@ -718,16 +739,18 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onDecomposeFinished(self):
         options = DetectionOptionsWidget(None).options
-        self.viewer.add_points(self.decomposeDense.decomposedSpots,
+        layer = self.viewer.add_points(self.decomposeDense.decomposedSpots,
                                scale=tuple(self.spotsLayer.scale), blending='additive', size=1)
+        NapariUtil.copyOriginalPath(self.spotsLayer, layer)
         if options.get('display_avg_spot') and not self.decomposeDense.referenceSpot is None:
-            self.viewer.add_image(self.decomposeDense.referenceSpot,
+            layer = self.viewer.add_image(self.decomposeDense.referenceSpot,
                                   scale=tuple(self.spotsLayer.scale),
                                   name="reference spot",
                                   colormap=self.spotsLayer.colormap,
                                   units=self.spotsLayer.units,
                                   blending=self.spotsLayer.blending
                                   )
+            NapariUtil.copyOriginalPath(self.spotsLayer, layer)
 
 
     def gFunctionInputChanged(self):
@@ -756,12 +779,6 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onLayerAddedOrRemoved(self, event: Event):
         self.updateLayerSelectionComboBoxes()
-
-
-    def onImageLoaded(self, event: Event):
-        print("image loaded")
-        print(type(event), event)
-
 
 
     def updateLayerSelectionComboBoxes(self):

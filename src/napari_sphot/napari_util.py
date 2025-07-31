@@ -76,3 +76,18 @@ class NapariUtil:
     def getDataAndScaleOfLayerWithName(self, name):
         layer = self.getLayerWithName(name)
         return layer.data, layer.scale
+
+
+    @staticmethod
+    def getOriginalPath(layer):
+        if 'original_path' in layer.metadata.keys():
+            return layer.metadata['original_path']
+        if layer.source.path:
+            return layer.source.path
+        return None
+
+
+    @staticmethod
+    def copyOriginalPath(srcLayer, destLayer):
+        path = NapariUtil.getOriginalPath(srcLayer)
+        destLayer.metadata['original_path'] = path
