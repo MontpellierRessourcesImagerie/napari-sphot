@@ -4,12 +4,12 @@ import numpy as np
 import os
 from pathlib import Path
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QFormLayout
 from napari.utils import notifications
 from napari_bigfish.bigfishapp import BigfishApp
 from sphot.filter import MedianFilter
 from qtpy.QtGui import QIcon
 from qtpy.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QGroupBox, QCheckBox
+from qtpy.QtWidgets import QFormLayout
 from napari.layers import Image
 from napari.layers import Labels
 from napari.utils.events import Event
@@ -385,9 +385,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text = self.gFunctionSpotsCombo.currentText()
         self.layer = self.napariUtil.getLayerWithName(text)
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        units = self.layer.units
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        self.measureTask = MeasureTask(spots, labels, scale)
+        self.measureTask = MeasureTask(spots, labels, scale, units)
         worker = create_worker(self.measureTask.run,
                                _progress={'desc': 'Measuring Features...'})
         worker.finished.connect(self.onMeasureTaskFinished)
@@ -418,6 +419,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         text = self.gFunctionSpotsCombo.currentText()
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        self.spotsLayer = self.napariUtil.getLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.convexHullTask = ConvexHullTask(spots, labels, scale, label)
@@ -430,8 +432,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def onConvexHullTaskFinished(self):
         hull = self.convexHullTask.result
         scale = self.convexHullTask.scale
-        self.viewer.add_points(hull.points[hull.vertices], scale=scale)
-        self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=scale)
+        units = self.spotsLayer.units
+        self.viewer.add_points(hull.points[hull.vertices], scale=scale, units=units)
+        self.viewer.add_shapes(hull.points[hull.simplices], shape_type='polygon', scale=scale, units=units)
 
 
     def _onDelaunayButtonClicked(self):
@@ -442,6 +445,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
+        self.layer = self.napariUtil.getLayerWithName(text)
         self.delaunayTask = DelaunayTask(spots, labels, scale, label)
         worker = create_worker(self.delaunayTask.run,
                                _progress={'desc': 'Calculating Delaunay Tesselation...'})
@@ -451,7 +455,11 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onDelaunayTaskFinished(self):
         tess = self.delaunayTask.result
-        self.viewer.add_shapes(tess.points[tess.simplices], scale=self.delaunayTask.scale, shape_type='path')
+        units = self.layer.units
+        self.viewer.add_shapes(tess.points[tess.simplices],
+                               scale=self.delaunayTask.scale,
+                               shape_type='path',
+                               units=units)
 
 
     def _onVoronoiButtonClicked(self):
@@ -462,6 +470,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         spots,scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
+        self.layer = self.napariUtil.getLayerWithName(text)
         self.voronoiTask = VoronoiTask(spots, labels, scale, label)
         worker = create_worker(self.voronoiTask.run,
                                _progress={'desc': 'Calculating Voronoi Tesselation...'})
@@ -471,7 +480,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onVoronoiTaskFinished(self):
         regions = self.voronoiTask.result
-        self.viewer.add_shapes(regions, scale=self.voronoiTask.scale, shape_type='polygon')
+        units = self.layer.units
+        self.viewer.add_shapes(regions, scale=self.voronoiTask.scale, shape_type='polygon', units=units)
 
 
     def _onSegmentImageButtonClicked(self):
@@ -502,7 +512,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         labelList = [int(labelText) for labelText in labelTextList]
         newLabels = Segmentation.keepLabels(self.layer.data, labelList)
-        layer = self.viewer.add_labels(newLabels, scale=self.layer.scale, blending='additive')
+        layer = self.viewer.add_labels(newLabels, scale=self.layer.scale, units=self.layer.units, blending='additive')
         NapariUtil.copyOriginalPath(self.layer, layer)
 
 
@@ -713,6 +723,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def onSegmentationFinished(self):
         layer = self.viewer.add_labels(self.segmentation.labels,
                                scale=self.layer.scale,
+                               units = self.layer.units,
                                blending='additive')
         NapariUtil.copyOriginalPath(self.layer, layer)
 
@@ -722,7 +733,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         options = DetectionOptionsWidget(None).options
         doDecomposeDense = options.get("decompose_dense")
         if not doDecomposeDense:
-            layer = self.viewer.add_points(self.detection.spots, scale=self.spotsLayer.scale, blending='additive', size=1)
+            layer = self.viewer.add_points(self.detection.spots,
+                                           scale=self.spotsLayer.scale,
+                                           units=self.spotsLayer.units,
+                                           blending='additive', size=2)
             NapariUtil.copyOriginalPath(self.spotsLayer, layer)
             return
         self.decomposeDense = DecomposeDenseRegions(self.spotsLayer.data, self.detection.spots)
@@ -740,14 +754,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def onDecomposeFinished(self):
         options = DetectionOptionsWidget(None).options
         layer = self.viewer.add_points(self.decomposeDense.decomposedSpots,
-                               scale=tuple(self.spotsLayer.scale), blending='additive', size=1)
+                                       scale=tuple(self.spotsLayer.scale),
+                                       units=self.spotsLayer.units,
+                                       blending='additive', size=2)
         NapariUtil.copyOriginalPath(self.spotsLayer, layer)
         if options.get('display_avg_spot') and not self.decomposeDense.referenceSpot is None:
             layer = self.viewer.add_image(self.decomposeDense.referenceSpot,
                                   scale=tuple(self.spotsLayer.scale),
+                                  units=self.spotsLayer.units,
                                   name="reference spot",
                                   colormap=self.spotsLayer.colormap,
-                                  units=self.spotsLayer.units,
                                   blending=self.spotsLayer.blending
                                   )
             NapariUtil.copyOriginalPath(self.spotsLayer, layer)

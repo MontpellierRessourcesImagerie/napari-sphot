@@ -34,7 +34,7 @@ dependencies = [
     "sphot@git+https://github.com/MontpellierRessourcesImagerie/Spatial_Heterogeneity_Of_Transcription",
     "napari-bigfish",
     "cellpose-napari",
-    "set-calibration"
+    "set-calibration@git+https://github.com/MontpellierRessourcesImagerie/set-scale-tool"
 ]
 
 [project.optional-dependencies]
