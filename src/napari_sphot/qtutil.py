@@ -96,6 +96,10 @@ class TableView(QTableWidget):
         copyAction = QAction("Copy\tCtrl+C", self)
         copyAction.triggered.connect(self.copyDataToClipboard)
         self.addAction(copyAction)
+        self.resetAction = QAction("Reset", self)
+        self.addAction(self.resetAction)
+        self.deleteAction = QAction("Delete", self)
+        self.addAction(self.deleteAction)
 
 
     def setData(self, table):

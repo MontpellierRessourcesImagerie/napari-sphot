@@ -407,6 +407,41 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         else:
             self.measurements = self.measureTask.table
         self.table = TableView(self.measurements)
+        self.table.resetAction.triggered.connect(self.resetMeasurements)
+        self.table.deleteAction.triggered.connect(self.deleteMeasurements)
+        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
+                                                                  area='right',
+                                                                  name='measurements',
+                                                                  tabify=False)
+
+
+    def resetMeasurements(self):
+        self.tableDockWidget.close()
+        self.measurements = {}
+        self.table = TableView(self.measurements)
+        self.table.resetAction.triggered.connect(self.resetMeasurements)
+        self.table.deleteAction.triggered.connect(self.deleteMeasurements)
+        self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
+                                                                  area='right',
+                                                                  name='measurements',
+                                                                  tabify=False)
+
+
+    def deleteMeasurements(self):
+        ranges = self.table.selectedRanges()
+        rowsToBedeleted = []
+        for tableRange in ranges:
+            top = tableRange.topRow()
+            bottom = tableRange.bottomRow()
+            for row in range(top, bottom+1):
+                rowsToBedeleted.append(row)
+        print(rowsToBedeleted)
+        for key, value in self.measurements.items():
+            self.measurements[key] = np.delete(np.array(value), rowsToBedeleted)
+        self.tableDockWidget.close()
+        self.table = TableView(self.measurements)
+        self.table.resetAction.triggered.connect(self.resetMeasurements)
+        self.table.deleteAction.triggered.connect(self.deleteMeasurements)
         self.tableDockWidget = self.viewer.window.add_dock_widget(self.table,
                                                                   area='right',
                                                                   name='measurements',
@@ -697,12 +732,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text1 = self.ccInputACombo.currentText()
         text2 = self.ccInputBCombo.currentText()
         self.correlator.calculateCrossCorrelationProfile()
+        layer1 = self.napariUtil.getLayerWithName(text1)
+        layer2 = self.napariUtil.getLayerWithName(text2)
         layer = self.viewer.add_image(self.correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
                                                            colormap='inferno',
                                                            blending='additive',
                                                            scale=self.layer.scale,
                                                            units=self.layer.units,
                               )
+        layer2.translate = (np.array(list(layer1.data.shape)) // 2 - np.array(list(layer2.data.shape)) // 2)
+        layer.translate = (np.array(list(layer1.data.shape)) // 2 - np.array(list(layer.data.shape)) // 2)
         NapariUtil.copyOriginalPath(self.layer, layer)
         plt.plot(self.correlator.correlationProfile[0], self.correlator.correlationProfile[1])
         data = np.asarray([self.correlator.correlationProfile[0], self.correlator.correlationProfile[1]])
