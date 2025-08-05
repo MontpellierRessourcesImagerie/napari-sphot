@@ -63,6 +63,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.cropLabelInput = None
         self.ccInputACombo = None
         self.ccInputBCombo = None
+        self.ccPaddingModeCombo = None
+        self.paddingModes = ['constant', 'wrap', 'empty', 'edge']
         self.spotsLayer = None
         self.gFunctionInput = None
         self.gFunctionSpotsCombo = None
@@ -225,6 +227,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.ccInputACombo.setMaximumWidth(self.comboMaxWidth)
         ccInputBLabel, self.ccInputBCombo = WidgetTool.getComboInput(self, "Input B: ", self.imageLayers)
         self.ccInputBCombo.setMaximumWidth(self.comboMaxWidth)
+        ccPaddingModeLabel, self.ccPaddingModeCombo = WidgetTool.getComboInput(self, "Padding mode: ",
+                                                                               self.paddingModes)
         correlationButton = QPushButton("Correlate")
         correlationButton.clicked.connect(self._onCorrelationButtonPressed)
         inputALayout = QHBoxLayout()
@@ -233,6 +237,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         inputBLayout = QHBoxLayout()
         inputBLayout.addWidget(ccInputBLabel)
         inputBLayout.addWidget(self.ccInputBCombo)
+        paddingModeLayout = QHBoxLayout()
+        paddingModeLayout.addWidget(ccPaddingModeLabel)
+        paddingModeLayout.addWidget(self.ccPaddingModeCombo)
         correlationButtonLayout = QHBoxLayout()
         correlationButtonLayout.addWidget(correlationButton)
         ccMainLayout.addLayout(ccCropImageLabelsLayout)
@@ -240,6 +247,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ccMainLayout.addLayout(ccCropLabelLayout)
         ccMainLayout.addLayout(inputALayout)
         ccMainLayout.addLayout(inputBLayout)
+        ccMainLayout.addLayout(paddingModeLayout)
         ccMainLayout.addLayout(correlationButtonLayout)
         crossCorrelationGroupBox.setLayout(ccMainLayout)
         return crossCorrelationGroupBox
@@ -715,12 +723,14 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def _onCorrelationButtonPressed(self):
         text1 = self.ccInputACombo.currentText()
         text2 = self.ccInputBCombo.currentText()
+        paddingMode = self.ccPaddingModeCombo.currentText()
         if not text1 or not text2:
             return
         self.layer = self.napariUtil.getLayerWithName(text1)
         imageA = self.napariUtil.getDataOfLayerWithName(text1)
         imageB = self.napariUtil.getDataOfLayerWithName(text2)
         self.correlator = Correlator(imageA, imageB)
+        self.correlator.paddingMode = paddingMode
         worker = create_worker(self.correlator.calculateCrossCorrelationProfile,
                                _progress={'desc': 'Calculating Cross-Correlation...'}
                                )
@@ -734,7 +744,11 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.correlator.calculateCrossCorrelationProfile()
         layer1 = self.napariUtil.getLayerWithName(text1)
         layer2 = self.napariUtil.getLayerWithName(text2)
-        layer = self.viewer.add_image(self.correlator.correlationImage, name="corr.: " + text1 + "-" + text2,
+        shape = layer1.data.shape
+        layer = self.viewer.add_image(self.correlator.correlationImage[shape[0]//2:shape[0]//2+shape[0],
+                                                                       shape[1]//2:shape[1]//2+shape[1],
+                                                                       shape[2]//2:shape[2]//2+shape[2]],
+                                                           name="corr.: " + text1 + "-" + text2,
                                                            colormap='inferno',
                                                            blending='additive',
                                                            scale=self.layer.scale,
