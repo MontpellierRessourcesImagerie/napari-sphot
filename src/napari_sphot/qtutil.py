@@ -1,10 +1,16 @@
+from typing import TYPE_CHECKING
 import pyperclip
 import numpy as np
+import matplotlib.pyplot as plt
+from PyQt5.QtWidgets import QHBoxLayout
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from qtpy.QtWidgets import QLabel, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, QAction
-from qtpy.QtCore import Qt, QVariant
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from napari.utils import notifications
 from napari_sphot.array_util import ArrayUtil
-
+if TYPE_CHECKING:
+    import napari
 
 class WidgetTool:
     """
@@ -152,7 +158,7 @@ class TableView(QTableWidget):
         copied_cells = self.selectedIndexes()
         if len(copied_cells) == 0:
             return ""
-        labels = [self.horizontalHeaderItem(id).text() for id in range(0, self.columnCount())];
+        labels = [self.horizontalHeaderItem(id).text() for id in range(0, self.columnCount())]
         data = [['' for i in range(self.columnCount())] for j in range(self.rowCount())]
         for cell in copied_cells:
             data[cell.row()][cell.column()] = cell.data()
@@ -165,3 +171,55 @@ class TableView(QTableWidget):
         remainingHeadings = [labels[index] for index in columnIndices]
         result = "\t".join(remainingHeadings) + "\n" + lines
         return result
+
+
+
+class PlotWidget(QWidget):
+
+
+    def __init__(self, viewer: "napari.viewer.Viewer"):
+        super().__init__()
+        self.figure = plt.figure()
+        self.canvas = FigureCanvas(self.figure)
+        self.viewer = viewer
+        self.createLayout()
+        self.formatString = None
+        self.title = "Plot"
+        self.X = []
+        self.Y = []
+        self.ax = None
+        self.area = 'left'
+        self.tabify = True
+        self.xLabel = "x"
+        self.yLabel = "y"
+
+
+    def createLayout(self):
+        mainLayout = QVBoxLayout()
+        canvasLayout = QHBoxLayout()
+        canvasLayout.addWidget(self.canvas)
+        mainLayout.addLayout(canvasLayout)
+        self.setLayout(mainLayout)
+
+
+    def addData(self, X, Y):
+        self.X.append(X)
+        self.Y.append(Y)
+
+
+    def clear(self):
+        self.figure.clear()
+
+
+    def display(self):
+        self.ax = self.figure.add_subplot(111)
+        self.ax.set_xlabel(self.xLabel)
+        self.ax.set_ylabel(self.yLabel)
+        for x, y in zip(self.X, self.Y):
+            if self.formatString:
+                self.ax.plot(x, y, self.formatString)
+            else:
+                self.ax.plot(x, y)
+        self.canvas.draw()
+        self.viewer.window.add_dock_widget(self, area=self.area, name=self.title, tabify=self.tabify)
+

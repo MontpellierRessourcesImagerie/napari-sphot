@@ -28,6 +28,7 @@ from sphot.image import MeasureTask
 from sphot.image import CropLabelTask
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
+from napari_sphot.qtutil import PlotWidget
 from napari_sphot.napari_util import NapariUtil
 from napari_sphot.qtutil import TableView
 from napari_sphot.options import Options
@@ -92,7 +93,6 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                                                                   area='right', name='measurements', tabify=False)
         self.decomposeDense = None
         self.detection = None
-
 
 
     @classmethod
@@ -326,7 +326,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.viewer.window.add_dock_widget(detectionOptionsWidget, area='right', name='Options of Detect Spots',
                                                                    tabify=True)
 
-
+    # noinspection PyPackageRequirements
     def _onMedianFilterButtonClicked(self):
         self.layer = self.getActiveLayer()
         if not self.layer or not type(self.layer) is Image:
@@ -392,7 +392,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
     def _onMeasureButtonClicked(self):
         text = self.gFunctionSpotsCombo.currentText()
         self.layer = self.napariUtil.getLayerWithName(text)
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, _ = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         units = self.layer.units
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
@@ -461,11 +461,11 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         self.spotsLayer = self.napariUtil.getLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        self.convexHullTask = ConvexHullTask(spots, labels, scale, label)
+        self.convexHullTask = ConvexHullTask(spots, labels, scale, unit, label)
         worker = create_worker(self.convexHullTask.run,
                                _progress={'desc': 'Calculating Convex Hull...'})
         worker.finished.connect(self.onConvexHullTaskFinished)
@@ -485,13 +485,15 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.layer = self.napariUtil.getLayerWithName(text)
-        self.delaunayTask = DelaunayTask(spots, labels, scale, label)
+        self.delaunayTask = DelaunayTask(spots, labels, scale, unit, label)
+
         worker = create_worker(self.delaunayTask.run,
                                _progress={'desc': 'Calculating Delaunay Tesselation...'})
+
         worker.finished.connect(self.onDelaunayTaskFinished)
         worker.start()
 
@@ -510,13 +512,15 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         if not label:
             return
         text = self.gFunctionSpotsCombo.currentText()
-        spots,scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots,scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.layer = self.napariUtil.getLayerWithName(text)
-        self.voronoiTask = VoronoiTask(spots, labels, scale, label)
+        self.voronoiTask = VoronoiTask(spots, labels, scale, unit, label)
+
         worker = create_worker(self.voronoiTask.run,
                                _progress={'desc': 'Calculating Voronoi Tesselation...'})
+
         worker.finished.connect(self.onVoronoiTaskFinished)
         worker.start()
 
@@ -539,8 +543,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.segmentation.cellProbabilityThreshold = options.get("cellprob_threshold")
         self.segmentation.diameter = options.get('diameter')
         self.segmentation.resampleDynamics = True
+
         worker = create_worker(self.segmentation.run,
                                _progress={'total': 5, 'desc': 'Segmenting cells...'})
+
         worker.finished.connect(self.onSegmentationFinished)
         worker.start()
 
@@ -582,8 +588,10 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                 self.detection.shallRemoveDuplicates,
                 self.detection.shallFindThreshold,
                 self.spotsLayer.name))
+
         worker = create_worker(self.detection.run,
                                _progress={'total': 2, 'desc': 'Detecting spots...'})
+
         worker.finished.connect(self.onDetectionFinished)
         worker.start()
 
@@ -594,14 +602,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        self.gFunctionTask = GFunctionTask(spots, labels, scale, label)
+        self.gFunctionTask = GFunctionTask(spots, labels, scale, unit, label)
         self.gFunctionTask.nrOfSamples = 100
+
         worker = create_worker(self.gFunctionTask.run,
                       _progress={'desc': 'Calculating G-Function...'}
                       )
+
         worker.finished.connect(self.ongFunctionTaskFinished)
         worker.start()
 
@@ -612,11 +622,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        self.hFunctionTask = HFunctionTask(spots, labels, scale, label)
+        self.hFunctionTask = HFunctionTask(spots, labels, scale, unit, label)
         self.hFunctionTask.nrOfSamples = 100
+
         worker = create_worker(self.hFunctionTask.run,
                                _progress={'desc': 'Calculating H-Function...'}
                                )
@@ -630,14 +641,16 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             return
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
-        spots, scale = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
-        self.fFunctionTask = FFunctionTask(spots, labels, scale, label)
+        self.fFunctionTask = FFunctionTask(spots, labels, scale, unit, label)
         self.fFunctionTask.nrOfSamples = 100
+
         worker = create_worker(self.fFunctionTask.run,
                       _progress={'desc': 'Calculating F-Function...'}
                       )
+
         worker.finished.connect(self.onfFunctionTaskFinished)
         worker.start()
 
@@ -646,7 +659,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax = plt.subplot()
         analyzer = self.fFunctionTask.analyzer
         analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [nm]')
+        ax.set_xlabel('distances [' + self.fFunctionTask.unit + ']')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.emptySpaceDistances[self.fFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
@@ -662,7 +675,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax = plt.subplot()
         analyzer = self.gFunctionTask.analyzer
         analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [nm]')
+        ax.set_xlabel('distances [' + self.gFunctionTask.unit + ']')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.nnDistances[self.gFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
@@ -678,7 +691,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         ax = plt.subplot()
         analyzer = self.hFunctionTask.analyzer
         analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [nm]')
+        ax.set_xlabel('distances [' + self.hFunctionTask.unit + ']')
         ax.set_ylabel('Empirical CDF')
         maxDist = np.max(analyzer.allDistances[self.hFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
@@ -701,9 +714,11 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             self.cropLabel = 1
             return
         self.cropLabelTask = CropLabelTask(labels, image, self.cropLabel)
+
         worker = create_worker(self.cropLabelTask.run,
                                _progress={'desc': 'Cropping image...'}
                                )
+
         worker.finished.connect(self.onCropLabelTaskFinished)
         worker.start()
 
@@ -757,10 +772,17 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         layer2.translate = (np.array(list(layer1.data.shape)) // 2 - np.array(list(layer2.data.shape)) // 2)
         layer.translate = (np.array(list(layer1.data.shape)) // 2 - np.array(list(layer.data.shape)) // 2)
         NapariUtil.copyOriginalPath(self.layer, layer)
-        plt.plot(self.correlator.correlationProfile[0], self.correlator.correlationProfile[1])
-        data = np.asarray([self.correlator.correlationProfile[0], self.correlator.correlationProfile[1]])
+        title = "Cross-correlation: " + layer1.name + " - " + layer2.name
+        if text1==text2:
+            title = "Auto-correlation " + layer1.name
+        plotWidget = PlotWidget(self.viewer)
+        plotWidget.addData(np.asarray(self.correlator.correlationProfile[0]) * layer1.scale[0], self.correlator.correlationProfile[1])
+        plotWidget.title = title
+        plotWidget.xLabel = "radius [" + str(layer1.units[0]) +"]"
+        plotWidget.yLabel = "NCC"
+        data = np.asarray([np.asarray(self.correlator.correlationProfile[0]) * layer1.scale[0], self.correlator.correlationProfile[1]])
         np.savetxt("corr.: " + text1 + "-" + text2 + ".csv", data, delimiter=",")
-        plt.show()
+        plotWidget.display()
 
 
     def getActiveLayer(self):
@@ -937,7 +959,7 @@ class DetectionOptionsWidget(OptionsWidget):
 
     def createLayout(self):
         mainLayout = QVBoxLayout()
-        formLayout = QFormLayout()
+        formLayout = QFormLayout(parent=self)
         buttonsLayout = QHBoxLayout()
         mainLayout.addLayout(formLayout)
         mainLayout.addLayout(buttonsLayout)
@@ -953,9 +975,9 @@ class DetectionOptionsWidget(OptionsWidget):
                                                                     self.options.get('radius_z'),
                                                                     self.fieldWidth,
                                                                     self.ignoreChange)
-        self.removeDuplicatesCheckBox = QCheckBox(text="Remove Duplicates")
+        self.removeDuplicatesCheckBox = QCheckBox("Remove Duplicates", self)
         self.removeDuplicatesCheckBox.setChecked(self.options.get('remove_duplicates'))
-        self.decomposeDenseCheckBox = QCheckBox(text="Decompose Dense")
+        self.decomposeDenseCheckBox = QCheckBox("Decompose Dense", self)
         self.decomposeDenseCheckBox.setChecked(self.options.get('decompose_dense'))
         alphaLabel, self.alphaInput = WidgetTool.getLineInput(self, "Alpha: ",
                                                                   self.options.get('alpha'),
@@ -969,7 +991,7 @@ class DetectionOptionsWidget(OptionsWidget):
                                                               self.options.get('gamma'),
                                                               self.fieldWidth,
                                                               self.ignoreChange)
-        self.displayMeanSpotCheckBox = QCheckBox(text="Display Avg. Spot")
+        self.displayMeanSpotCheckBox = QCheckBox("Display Avg. Spot", self)
         self.displayMeanSpotCheckBox.setChecked(self.options.get('display_avg_spot'))
         okButton = QPushButton("&OK")
         okButton.clicked.connect(self._onOKButtonClicked)
@@ -1027,7 +1049,7 @@ class SegmentationOptionsWidget(OptionsWidget):
 
     def createLayout(self):
         mainLayout = QVBoxLayout()
-        formLayout = QFormLayout()
+        formLayout = QFormLayout(parent=self)
         buttonsLayout = QHBoxLayout()
         mainLayout.addLayout(formLayout)
         mainLayout.addLayout(buttonsLayout)
@@ -1047,7 +1069,7 @@ class SegmentationOptionsWidget(OptionsWidget):
                                                                                self.options.get('min_size'),
                                                                                self.fieldWidth,
                                                                                self.minSizeChanged)
-        self.removeCheckbox = QCheckBox(text="Remove Edge")
+        self.removeCheckbox = QCheckBox("Remove Edge", self)
         self.removeCheckbox.setChecked(self.options.get('remove_border_objects'))
         okButton = QPushButton("&OK")
         okButton.clicked.connect(self._onOKButtonClicked)

@@ -75,7 +75,7 @@ class NapariUtil:
 
     def getDataAndScaleOfLayerWithName(self, name):
         layer = self.getLayerWithName(name)
-        return layer.data, layer.scale
+        return layer.data, layer.scale, str(layer.units[0])
 
 
     @staticmethod
