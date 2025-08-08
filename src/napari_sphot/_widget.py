@@ -127,14 +127,12 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
         segmentImageOptionsButton = self.getOptionsButton(self._onSegmentImageOptionsClicked)
         segmentImageOptionsButton.setMaximumWidth(50)
-
         keepLabelsLabel, self.keepLabelsInput = WidgetTool.getLineInput(self, "Keep labels: ",
                                                                                 self.keepLabelsText,
                                                                                 self.fieldWidth*2,
                                                                                 self.keepLabelsChanged)
         keepLabelsButton = QPushButton("Keep Labels")
         keepLabelsButton.clicked.connect(self._onKeepLabelsButtonClicked)
-
         detectSpotsButton = QPushButton("Detect Spots")
         detectSpotsButton.clicked.connect(self._onDetectSpotsButtonClicked)
         detectSpotsOptionsButton = self.getOptionsButton(self._onDetectSpotsOptionsClicked)
@@ -603,15 +601,14 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         self.labelOfNucleus = label
         text = self.gFunctionSpotsCombo.currentText()
         spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        self.layer = self.napariUtil.getLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.gFunctionTask = GFunctionTask(spots, labels, scale, unit, label)
         self.gFunctionTask.nrOfSamples = 100
-
         worker = create_worker(self.gFunctionTask.run,
                       _progress={'desc': 'Calculating G-Function...'}
                       )
-
         worker.finished.connect(self.ongFunctionTaskFinished)
         worker.start()
 
@@ -627,7 +624,6 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.hFunctionTask = HFunctionTask(spots, labels, scale, unit, label)
         self.hFunctionTask.nrOfSamples = 100
-
         worker = create_worker(self.hFunctionTask.run,
                                _progress={'desc': 'Calculating H-Function...'}
                                )
@@ -643,64 +639,66 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         text = self.gFunctionSpotsCombo.currentText()
         spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
         text = self.gFunctionLabelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
         labels = self.napariUtil.getDataOfLayerWithName(text)
         self.fFunctionTask = FFunctionTask(spots, labels, scale, unit, label)
         self.fFunctionTask.nrOfSamples = 100
-
         worker = create_worker(self.fFunctionTask.run,
                       _progress={'desc': 'Calculating F-Function...'}
                       )
-
         worker.finished.connect(self.onfFunctionTaskFinished)
         worker.start()
 
 
     def onfFunctionTaskFinished(self):
-        ax = plt.subplot()
         analyzer = self.fFunctionTask.analyzer
-        analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [' + self.fFunctionTask.unit + ']')
-        ax.set_ylabel('Empirical CDF')
+        plotWidget = PlotWidget(self.viewer)
+        analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(plotWidget.ax)
+        plotWidget.xLabel = 'distances [' + self.fFunctionTask.unit + ']'
+        plotWidget.yLabel = "Empirical CDF"
         maxDist = np.max(analyzer.emptySpaceDistances[self.fFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
         envelop = self.fFunctionTask.envelop
-        plt.plot(xValues, envelop[0], 'r--')
-        plt.plot(xValues, envelop[1], 'g--')
-        plt.plot(xValues, envelop[2], 'g--')
-        plt.plot(xValues, envelop[3], 'r--')
-        plt.show()
+        plotWidget.addData(xValues, envelop[0], "r--")
+        plotWidget.addData(xValues, envelop[1], "g--")
+        plotWidget.addData(xValues, envelop[2], "g--")
+        plotWidget.addData(xValues, envelop[3], "r--")
+        plotWidget.title = "F-Function of " + self.layer.name
+        plotWidget.display()
 
 
     def ongFunctionTaskFinished(self):
-        ax = plt.subplot()
         analyzer = self.gFunctionTask.analyzer
-        analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [' + self.gFunctionTask.unit + ']')
-        ax.set_ylabel('Empirical CDF')
+        plotWidget = PlotWidget(self.viewer)
+        analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(plotWidget.ax)
+        plotWidget.xLabel = 'distances [' + self.gFunctionTask.unit + ']'
+        plotWidget.yLabel = "Empirical CDF"
         maxDist = np.max(analyzer.nnDistances[self.gFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
         envelop = self.gFunctionTask.envelop
-        plt.plot(xValues, envelop[0], 'r--')
-        plt.plot(xValues, envelop[1], 'g--')
-        plt.plot(xValues, envelop[2], 'g--')
-        plt.plot(xValues, envelop[3], 'r--')
-        plt.show()
+        plotWidget.addData(xValues, envelop[0], "r--")
+        plotWidget.addData(xValues, envelop[1], "g--")
+        plotWidget.addData(xValues, envelop[2], "g--")
+        plotWidget.addData(xValues, envelop[3], "r--")
+        plotWidget.title = "G-Function of " + self.layer.name
+        plotWidget.display()
 
 
     def onhFunctionTaskFinished(self):
-        ax = plt.subplot()
         analyzer = self.hFunctionTask.analyzer
-        analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(ax)
-        ax.set_xlabel('distances [' + self.hFunctionTask.unit + ']')
-        ax.set_ylabel('Empirical CDF')
+        plotWidget = PlotWidget(self.viewer)
+        analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(plotWidget.ax)
+        plotWidget.xLabel = 'distances [' + self.hFunctionTask.unit + ']'
+        plotWidget.yLabel = "Empirical CDF"
         maxDist = np.max(analyzer.allDistances[self.hFunctionTask.label][0])
         xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
         envelop = self.hFunctionTask.envelop
-        plt.plot(xValues, envelop[0], 'r--')
-        plt.plot(xValues, envelop[1], 'g--')
-        plt.plot(xValues, envelop[2], 'g--')
-        plt.plot(xValues, envelop[3], 'r--')
-        plt.show()
+        plotWidget.addData(xValues, envelop[0], "r--")
+        plotWidget.addData(xValues, envelop[1], "g--")
+        plotWidget.addData(xValues, envelop[2], "g--")
+        plotWidget.addData(xValues, envelop[3], "r--")
+        plotWidget.title = "H-Function of " + self.layer.name
+        plotWidget.display()
 
 
     def _onCropButtonPressed(self):
@@ -959,7 +957,7 @@ class DetectionOptionsWidget(OptionsWidget):
 
     def createLayout(self):
         mainLayout = QVBoxLayout()
-        formLayout = QFormLayout(parent=self)
+        formLayout = QFormLayout()
         buttonsLayout = QHBoxLayout()
         mainLayout.addLayout(formLayout)
         mainLayout.addLayout(buttonsLayout)
@@ -1049,7 +1047,7 @@ class SegmentationOptionsWidget(OptionsWidget):
 
     def createLayout(self):
         mainLayout = QVBoxLayout()
-        formLayout = QFormLayout(parent=self)
+        formLayout = QFormLayout()
         buttonsLayout = QHBoxLayout()
         mainLayout.addLayout(formLayout)
         mainLayout.addLayout(buttonsLayout)

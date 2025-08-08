@@ -180,14 +180,14 @@ class PlotWidget(QWidget):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self.figure = plt.figure()
+        self.ax = self.figure.add_subplot(111)
         self.canvas = FigureCanvas(self.figure)
         self.viewer = viewer
         self.createLayout()
-        self.formatString = None
+        self.formatStrings = []
         self.title = "Plot"
         self.X = []
         self.Y = []
-        self.ax = None
         self.area = 'left'
         self.tabify = True
         self.xLabel = "x"
@@ -202,9 +202,11 @@ class PlotWidget(QWidget):
         self.setLayout(mainLayout)
 
 
-    def addData(self, X, Y):
+    def addData(self, X, Y, formatString=None):
         self.X.append(X)
         self.Y.append(Y)
+        if formatString:
+            self.formatStrings.append(formatString)
 
 
     def clear(self):
@@ -212,13 +214,13 @@ class PlotWidget(QWidget):
 
 
     def display(self):
-        self.ax = self.figure.add_subplot(111)
         self.ax.set_xlabel(self.xLabel)
         self.ax.set_ylabel(self.yLabel)
-        for x, y in zip(self.X, self.Y):
-            if self.formatString:
-                self.ax.plot(x, y, self.formatString)
-            else:
+        if self.formatStrings:
+            for x, y, plotFormat in zip(self.X, self.Y, self.formatStrings):
+                self.ax.plot(x, y, plotFormat)
+        else:
+            for x, y in zip(self.X, self.Y):
                 self.ax.plot(x, y)
         self.canvas.draw()
         self.viewer.window.add_dock_widget(self, area=self.area, name=self.title, tabify=self.tabify)
