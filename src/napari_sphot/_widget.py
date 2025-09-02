@@ -3,7 +3,6 @@ import math
 import numpy as np
 import os
 from pathlib import Path
-import matplotlib.pyplot as plt
 from napari.utils import notifications
 from napari_bigfish.bigfishapp import BigfishApp
 from sphot.filter import MedianFilter
