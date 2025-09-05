@@ -25,6 +25,7 @@ from sphot.image import DelaunayTask
 from sphot.image import VoronoiTask
 from sphot.image import MeasureTask
 from sphot.image import CropLabelTask
+from sphot.image import DistancesFromCentroidTask
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.qtutil import PlotWidget
@@ -33,6 +34,161 @@ from napari_sphot.qtutil import TableView
 from napari_sphot.options import Options
 if TYPE_CHECKING:
     import napari
+
+
+class DistanceFromCentroidWidget(QWidget):
+
+
+    def __init__(self, viewer: "napari.viewer.Viewer"):
+        super().__init__()
+        self.viewer = viewer
+        self.napariUtil = NapariUtil(self.viewer)
+        self.fieldWidth = 50
+        self.comboMaxWidth = 150
+        self.labelOfNucleus = 1
+        self.selectedCellInput = None
+        self.pointsLayers = self.napariUtil.getPointsLayers()
+        self.labelLayers = self.napariUtil.getLabelLayers()
+        self.spotsCombo = None
+        self.labelsCombo = None
+        self.distancesFromCentroidTask = None
+        self.distancesTableDockWidget = None
+        self.distancesMeasurements = {}
+        self.distancesStatisticsMeasurements = {}
+        self.distancesTable = TableView(self.distancesMeasurements)
+        self.createLayout()
+        self.viewer.layers.events.inserted.connect(self.onLayerAddedOrRemoved)
+        self.viewer.layers.events.removed.connect(self.onLayerAddedOrRemoved)
+
+
+    def createLayout(self):
+        mainLayout = QVBoxLayout()
+        distanceFromCentroidGroupBox = self.getDistanceFromGroupBox()
+        mainLayout.addWidget(distanceFromCentroidGroupBox)
+        self.setLayout(mainLayout)
+
+
+    def getDistanceFromGroupBox(self):
+        distanceFromCentroidGroupBox = QGroupBox("Distance from Centroid")
+        mainLayout = QVBoxLayout()
+        layerSelectionLayout = QHBoxLayout()
+        cellSelectionLayout = QHBoxLayout()
+        buttonsLayout = QVBoxLayout()
+        firstButtonRow = QHBoxLayout()
+        secondButtonRow = QHBoxLayout()
+        buttonsLayout.addLayout(firstButtonRow)
+        buttonsLayout.addLayout(secondButtonRow)
+        mainLayout.addLayout(layerSelectionLayout)
+        mainLayout.addLayout(cellSelectionLayout)
+        mainLayout.addLayout(buttonsLayout)
+        distanceFromCentroidGroupBox.setLayout(mainLayout)
+
+        spotsLabel, self.spotsCombo = WidgetTool.getComboInput(self, "Spots: ", self.pointsLayers)
+        self.spotsCombo.setMaximumWidth(150)
+        labelsLabel, self.labelsCombo = WidgetTool.getComboInput(self, "Cell labels: ", self.labelLayers)
+        self.labelsCombo.setMaximumWidth(150)
+        layerSelectionLayout.addWidget(spotsLabel)
+        layerSelectionLayout.addWidget(self.spotsCombo )
+        layerSelectionLayout.addWidget(labelsLabel)
+        layerSelectionLayout.addWidget(self.labelsCombo)
+
+        cellLabel, self.selectedCellInput = WidgetTool.getLineInput(self, "Label of nucleus: ",
+                                                                      self.labelOfNucleus,
+                                                                      self.fieldWidth,
+                                                                      self.selectedCellInputChanged)
+        cellSelectionLayout.addWidget(cellLabel)
+        cellSelectionLayout.addWidget(self.selectedCellInput)
+
+        distancesButton = QPushButton("Distances")
+        distancesButton.clicked.connect(self._onDistancesButtonClicked)
+        densityButton = QPushButton("Density")
+        densityButton.clicked.connect(self._onDensityButtonClicked)
+        densityXButton = QPushButton("Density X")
+        densityXButton.clicked.connect(self._onDensityXButtonClicked)
+        densityYButton = QPushButton("Density Y")
+        densityYButton.clicked.connect(self._onDensityYButtonClicked)
+        densityZButton = QPushButton("Density Z")
+        densityZButton.clicked.connect(self._onDensityZButtonClicked)
+        firstButtonRow.addWidget(distancesButton)
+        firstButtonRow.addWidget(densityButton)
+        secondButtonRow.addWidget(densityXButton)
+        secondButtonRow.addWidget(densityYButton)
+        secondButtonRow.addWidget(densityZButton)
+
+        return distanceFromCentroidGroupBox
+
+
+    def selectedCellInputChanged(self):
+        pass
+
+
+    def onLayerAddedOrRemoved(self, event: Event):
+        self.updateLayerSelectionComboBoxes()
+
+
+    def updateLayerSelectionComboBoxes(self):
+        labelComboBoxes = [self.labelsCombo]
+        spotComboBoxes = [self.spotsCombo]
+        imageComboBoxes = []
+        labelLayers = self.napariUtil.getLabelLayers()
+        spotLayers = self.napariUtil.getPointsLayers()
+        imageLayers = self.napariUtil.getImageLayers()
+        for comboBox in labelComboBoxes:
+            WidgetTool.replaceItemsInComboBox(comboBox, labelLayers)
+        for comboBox in spotComboBoxes:
+            WidgetTool.replaceItemsInComboBox(comboBox, spotLayers)
+        for comboBox in imageComboBoxes:
+            WidgetTool.replaceItemsInComboBox(comboBox, imageLayers)
+
+
+    def _onDistancesButtonClicked(self):
+        label = int(self.selectedCellInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.spotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        text = self.labelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+
+        self.distancesFromCentroidTask = DistancesFromCentroidTask(labels, spots, scale, unit)
+        worker = create_worker(self.distancesFromCentroidTask.run,
+                               _progress={'desc': 'Calculating Distances from Centroid...'}
+                               )
+        worker.finished.connect(self.onDistancesFromCentroidTaskFinished)
+        worker.start()
+
+
+    def onDistancesFromCentroidTaskFinished(self):
+        self.distancesMeasurements.clear()
+        newTable = {}
+        for key, value in self.distancesFromCentroidTask.table.items():
+            newTable[str(key)] = value
+        if self.distancesTableDockWidget:
+            self.distancesTableDockWidget.close()
+        TableTool.addColumnsTableAToB(newTable, self.distancesMeasurements)
+        self.distancesTable = TableView(self.distancesMeasurements)
+        self.distancesTableDockWidget = self.viewer.window.add_dock_widget(self.distancesTable,
+                                                                  area='left',
+                                                                  name='Distances from Centroid',
+                                                                  tabify=True)
+
+
+    def _onDensityButtonClicked(self):
+        pass
+
+
+    def _onDensityXButtonClicked(self):
+        pass
+
+
+    def _onDensityYButtonClicked(self):
+        pass
+
+
+    def _onDensityZButtonClicked(self):
+        pass
 
 
 
@@ -92,6 +248,9 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                                                                   area='right', name='measurements', tabify=False)
         self.decomposeDense = None
         self.detection = None
+        self.distancesDockWidget = self.viewer.window.add_dock_widget(DistanceFromCentroidWidget(self.viewer),
+                                                                      area='right',
+                                                                      name="Distances from Centroid", tabify=True)
 
 
     @classmethod
@@ -440,7 +599,6 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
             bottom = tableRange.bottomRow()
             for row in range(top, bottom+1):
                 rowsToBedeleted.append(row)
-        print(rowsToBedeleted)
         for key, value in self.measurements.items():
             self.measurements[key] = np.delete(np.array(value), rowsToBedeleted)
         self.tableDockWidget.close()
