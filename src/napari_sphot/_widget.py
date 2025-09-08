@@ -26,6 +26,7 @@ from sphot.image import VoronoiTask
 from sphot.image import MeasureTask
 from sphot.image import CropLabelTask
 from sphot.image import DistancesFromCentroidTask
+from sphot.image import DensityByRadiusTask
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.qtutil import PlotWidget
@@ -52,6 +53,7 @@ class DistanceFromCentroidWidget(QWidget):
         self.spotsCombo = None
         self.labelsCombo = None
         self.distancesFromCentroidTask = None
+        self.densityByRadiusTask = None
         self.distancesTableDockWidget = None
         self.distancesMeasurements = {}
         self.distancesStatisticsMeasurements = {}
@@ -176,7 +178,36 @@ class DistanceFromCentroidWidget(QWidget):
 
 
     def _onDensityButtonClicked(self):
-        pass
+        label = int(self.selectedCellInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.spotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        text = self.labelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+
+        self.densityByRadiusTask = DensityByRadiusTask(label, labels, spots, scale, unit)
+        worker = create_worker(self.densityByRadiusTask.run,
+                               _progress={'desc': 'Calculating Density by radius...'}
+                               )
+        worker.finished.connect(self.onDensityByRadiusTaskFinished)
+        worker.start()
+
+
+    def onDensityByRadiusTaskFinished(self):
+        plotWidget = PlotWidget(self.viewer)
+        plotWidget.addData(self.densityByRadiusTask.radii,
+                           self.densityByRadiusTask.densities)
+        title = "Density by radius label=" + str(self.densityByRadiusTask.label)
+        plotWidget.title = title
+        plotWidget.xLabel = "radius [" + str(self.densityByRadiusTask.units) + "]"
+        plotWidget.yLabel = "Density"
+        data = np.asarray([np.asarray(self.densityByRadiusTask.radii),
+                           np.asarray(self.densityByRadiusTask.densities)])
+        np.savetxt("density.: " + self.layer.name + "-" + str(self.densityByRadiusTask.label) + ".csv", data, delimiter=",")
+        plotWidget.display()
 
 
     def _onDensityXButtonClicked(self):
