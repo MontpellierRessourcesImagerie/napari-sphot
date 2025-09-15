@@ -27,6 +27,7 @@ from sphot.image import MeasureTask
 from sphot.image import CropLabelTask
 from sphot.image import DistancesFromCentroidTask
 from sphot.image import DensityByRadiusTask
+from sphot.image import DensityAlongAxisTask
 from sphot.measure import TableTool
 from napari_sphot.qtutil import WidgetTool
 from napari_sphot.qtutil import PlotWidget
@@ -54,6 +55,7 @@ class DistanceFromCentroidWidget(QWidget):
         self.labelsCombo = None
         self.distancesFromCentroidTask = None
         self.densityByRadiusTask = None
+        self.densityAlongAxisTask = None
         self.distancesTableDockWidget = None
         self.distancesMeasurements = {}
         self.distancesStatisticsMeasurements = {}
@@ -210,16 +212,81 @@ class DistanceFromCentroidWidget(QWidget):
         plotWidget.display()
 
 
-    def _onDensityXButtonClicked(self):
-        pass
+    def _onDensityZButtonClicked(self):
+        label = int(self.selectedCellInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.spotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        text = self.labelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        self.densityAlongAxisTask = DensityAlongAxisTask(label, labels, spots, scale, unit)
+        self.densityAlongAxisTask.axis = 0
+        worker = create_worker(self.densityAlongAxisTask.run,
+                               _progress={'desc': 'Calculating Density along axis ' +
+                                                  str(self.densityAlongAxisTask.axis) + '...'}
+                               )
+        worker.finished.connect(self._onDensityTaskFinished)
+        worker.start()
 
 
     def _onDensityYButtonClicked(self):
-        pass
+        label = int(self.selectedCellInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.spotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        text = self.labelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        self.densityAlongAxisTask = DensityAlongAxisTask(label, labels, spots, scale, unit)
+        self.densityAlongAxisTask.axis = 1
+        worker = create_worker(self.densityAlongAxisTask.run,
+                               _progress={'desc': 'Calculating Density along axis ' +
+                                                  str(self.densityAlongAxisTask.axis) + '...'}
+                               )
+        worker.finished.connect(self._onDensityTaskFinished)
+        worker.start()
 
 
-    def _onDensityZButtonClicked(self):
-        pass
+    def _onDensityXButtonClicked(self):
+        label = int(self.selectedCellInput.text().strip())
+        if not label:
+            return
+        self.labelOfNucleus = label
+        text = self.spotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        text = self.labelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        self.densityAlongAxisTask = DensityAlongAxisTask(label, labels, spots, scale, unit)
+        self.densityAlongAxisTask.axis = 2
+        worker = create_worker(self.densityAlongAxisTask.run,
+                               _progress={'desc': 'Calculating Density along axis ' +
+                                                  str(self.densityAlongAxisTask.axis) + '...'}
+                               )
+        worker.finished.connect(self._onDensityTaskFinished)
+        worker.start()
+
+
+    def _onDensityTaskFinished(self):
+        plotWidget = PlotWidget(self.viewer)
+        plotWidget.addData(self.densityAlongAxisTask.radii,
+                           self.densityAlongAxisTask.densities)
+        title = "Density along axis=" + str(self.densityAlongAxisTask.axis)+ " label=" + str(self.densityAlongAxisTask.label)
+        plotWidget.title = title
+        plotWidget.xLabel = "radius [" + str(self.densityAlongAxisTask.units) + "]"
+        plotWidget.yLabel = "Density"
+        data = np.asarray([np.asarray(self.densityAlongAxisTask.radii),
+                           np.asarray(self.densityAlongAxisTask.densities)])
+        filename = "density.: " + self.layer.name + "-" + str(self.densityAlongAxisTask.label) + "-axis " + str(self.densityAlongAxisTask.axis) + ".csv"
+        np.savetxt(filename,
+                   data,
+                   delimiter=",")
+        plotWidget.display()
 
 
 
