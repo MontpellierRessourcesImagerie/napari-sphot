@@ -52,7 +52,7 @@ napari-sphot = "napari_sphot:napari.yaml"
 
 [project.urls]
 "Bug Tracker" = "https://github.com/MontpellierRessourcesImagerie/napari-sphot/issues"
-"Documentation" = "https://github.com/MontpellierRessourcesImagerie/napari-sphot#README.md"
+"Documentation" = "https://github.com/MontpellierRessourcesImagerie/napari-sphot/wiki"
 "Source Code" = "https://github.com/MontpellierRessourcesImagerie/napari-sphot"
 "User Support" = "https://github.com/MontpellierRessourcesImagerie/napari-sphot/issues"
 

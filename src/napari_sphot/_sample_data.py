@@ -10,6 +10,8 @@ Replace code below according to your needs.
 from __future__ import annotations
 
 import numpy
+from skimage import io
+import pandas as pd
 
 
 def make_sample_data():
@@ -19,4 +21,37 @@ def make_sample_data():
     # Check the documentation for more information about the
     # add_image_kwargs
     # https://napari.org/stable/api/napari.Viewer.html#napari.Viewer.add_image
-    return [(numpy.random.rand(512, 512), {})]
+
+    scale = (30, 30, 30)
+    units = ('nm', 'nm', 'nm')
+    nuclei = io.imread('https://dev.mri.cnrs.fr/attachments/download/3983/02-SMALL_NUCLEI.tif')
+    nucleiData = numpy.array(nuclei)
+    spots = io.imread('https://dev.mri.cnrs.fr/attachments/download/3984/02-SMALL_SPOTS.tif')
+    spotsData = numpy.array(spots)
+    labels = io.imread('https://dev.mri.cnrs.fr/attachments/download/3982/Labels.tif')
+    labelsData = numpy.array(labels)
+    points = pd.read_csv('https://dev.mri.cnrs.fr/attachments/download/3981/Points.csv')
+    pointsData = list(zip(points['axis-0'].values, points['axis-1'].values, points['axis-2'].values))
+
+    return [(nucleiData,
+             {'scale': scale,
+              'name': 'nuclei',
+              'units': units}),
+            (spotsData,
+             {'scale': scale,
+              'name': 'spots',
+              'units': units}),
+            (labelsData,
+             {'scale': scale,
+              'name': 'labels',
+              'units': units},
+              "labels"),
+            (pointsData,
+             {
+                 'scale': scale,
+                 'name': 'points',
+                 'units': units
+             },
+             "points"
+            )
+            ]

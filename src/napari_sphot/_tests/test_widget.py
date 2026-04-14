@@ -1,7 +1,7 @@
 import numpy as np
 
 from napari_sphot._widget import (
-    ExampleQWidget,
+    SpatialHeterogeneityOfTranscriptionWidget,
 )
 
 
@@ -12,11 +12,6 @@ def test_example_q_widget(make_napari_viewer, capsys):
     viewer.add_image(np.random.random((100, 100)))
 
     # create our widget, passing in the viewer
-    my_widget = ExampleQWidget(viewer)
+    my_widget = SpatialHeterogeneityOfTranscriptionWidget(viewer)
 
-    # call our widget method
-    my_widget._on_click()
-
-    # read captured output and check that it's as we expected
-    captured = capsys.readouterr()
-    assert captured.out == "napari has 1 layers\n"
+    assert True

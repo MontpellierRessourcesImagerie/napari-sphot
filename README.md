@@ -35,6 +35,15 @@ To install latest development version :
 
     pip install git+https://github.com/MontpellierRessourcesImagerie/napari-sphot.git
 
+## Documentation
+
+Please find the documentation on the [wiki of this repository](https://github.com/MontpellierRessourcesImagerie/napari-sphot/wiki).
+
+## Using the functions in your own code
+
+This repository contains the plugin code of the project. The image analysis functions are implemented in the 
+[Spatial_Heterogeneity_Of_Transcription](https://github.com/MontpellierRessourcesImagerie/Spatial_Heterogeneity_Of_Transcription)
+repository.
 
 ## Contributing
 
