@@ -907,54 +907,62 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
 
     def onfFunctionTaskFinished(self):
         analyzer = self.fFunctionTask.analyzer
-        plotWidget = PlotWidget(self.viewer)
-        analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(plotWidget.ax)
-        plotWidget.xLabel = 'distances [' + self.fFunctionTask.unit + ']'
-        plotWidget.yLabel = "Empirical CDF"
-        maxDist = np.max(analyzer.emptySpaceDistances[self.fFunctionTask.label][0])
-        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
-        envelop = self.fFunctionTask.envelop
-        plotWidget.addData(xValues, envelop[0], "r--")
-        plotWidget.addData(xValues, envelop[1], "g--")
-        plotWidget.addData(xValues, envelop[2], "g--")
-        plotWidget.addData(xValues, envelop[3], "r--")
-        plotWidget.title = "F-Function of " + self.layer.name
-        plotWidget.display()
+        if len(analyzer.pointsPerCell[self.fFunctionTask.label])>0:
+            plotWidget = PlotWidget(self.viewer)
+            analyzer.esEcdfs[self.fFunctionTask.label].cdf.plot(plotWidget.ax)
+            plotWidget.xLabel = 'distances [' + self.fFunctionTask.unit + ']'
+            plotWidget.yLabel = "Empirical CDF"
+            maxDist = np.max(analyzer.emptySpaceDistances[self.fFunctionTask.label][0])
+            xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+            envelop = self.fFunctionTask.envelop
+            plotWidget.addData(xValues, envelop[0], "r--")
+            plotWidget.addData(xValues, envelop[1], "g--")
+            plotWidget.addData(xValues, envelop[2], "g--")
+            plotWidget.addData(xValues, envelop[3], "r--")
+            plotWidget.title = "F-Function of " + self.layer.name
+            plotWidget.display()
+        else:
+            notifications.show_error("Not enough points to calculate F-Function!")
 
 
     def ongFunctionTaskFinished(self):
         analyzer = self.gFunctionTask.analyzer
-        plotWidget = PlotWidget(self.viewer)
-        analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(plotWidget.ax)
-        plotWidget.xLabel = 'distances [' + self.gFunctionTask.unit + ']'
-        plotWidget.yLabel = "Empirical CDF"
-        maxDist = np.max(analyzer.nnDistances[self.gFunctionTask.label][0])
-        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
-        envelop = self.gFunctionTask.envelop
-        plotWidget.addData(xValues, envelop[0], "r--")
-        plotWidget.addData(xValues, envelop[1], "g--")
-        plotWidget.addData(xValues, envelop[2], "g--")
-        plotWidget.addData(xValues, envelop[3], "r--")
-        plotWidget.title = "G-Function of " + self.layer.name
-        plotWidget.display()
+        if len(analyzer.pointsPerCell[self.gFunctionTask.label]) > 0:
+            plotWidget = PlotWidget(self.viewer)
+            analyzer.nnEcdfs[self.gFunctionTask.label].cdf.plot(plotWidget.ax)
+            plotWidget.xLabel = 'distances [' + self.gFunctionTask.unit + ']'
+            plotWidget.yLabel = "Empirical CDF"
+            maxDist = np.max(analyzer.nnDistances[self.gFunctionTask.label][0])
+            xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+            envelop = self.gFunctionTask.envelop
+            plotWidget.addData(xValues, envelop[0], "r--")
+            plotWidget.addData(xValues, envelop[1], "g--")
+            plotWidget.addData(xValues, envelop[2], "g--")
+            plotWidget.addData(xValues, envelop[3], "r--")
+            plotWidget.title = "G-Function of " + self.layer.name
+            plotWidget.display()
+        else:
+            notifications.show_error("Not enough points to calculate G-Function!")
 
 
     def onhFunctionTaskFinished(self):
         analyzer = self.hFunctionTask.analyzer
-        plotWidget = PlotWidget(self.viewer)
-        analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(plotWidget.ax)
-        plotWidget.xLabel = 'distances [' + self.hFunctionTask.unit + ']'
-        plotWidget.yLabel = "Empirical CDF"
-        maxDist = np.max(analyzer.allDistances[self.hFunctionTask.label][0])
-        xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
-        envelop = self.hFunctionTask.envelop
-        plotWidget.addData(xValues, envelop[0], "r--")
-        plotWidget.addData(xValues, envelop[1], "g--")
-        plotWidget.addData(xValues, envelop[2], "g--")
-        plotWidget.addData(xValues, envelop[3], "r--")
-        plotWidget.title = "H-Function of " + self.layer.name
-        plotWidget.display()
-
+        if len(analyzer.pointsPerCell[self.hFunctionTask.label]) > 0:
+            plotWidget = PlotWidget(self.viewer)
+            analyzer.adEcdfs[self.hFunctionTask.label].cdf.plot(plotWidget.ax)
+            plotWidget.xLabel = 'distances [' + self.hFunctionTask.unit + ']'
+            plotWidget.yLabel = "Empirical CDF"
+            maxDist = np.max(analyzer.allDistances[self.hFunctionTask.label][0])
+            xValues = np.array(list(np.arange(0, math.floor(maxDist + 1), analyzer.scale[1])))
+            envelop = self.hFunctionTask.envelop
+            plotWidget.addData(xValues, envelop[0], "r--")
+            plotWidget.addData(xValues, envelop[1], "g--")
+            plotWidget.addData(xValues, envelop[2], "g--")
+            plotWidget.addData(xValues, envelop[3], "r--")
+            plotWidget.title = "H-Function of " + self.layer.name
+            plotWidget.display()
+        else:
+            notifications.show_error("Not enough points to calculate H-Function!")
 
     def _onCropButtonPressed(self):
         text = self.cropImageLabelsCombo.currentText()
