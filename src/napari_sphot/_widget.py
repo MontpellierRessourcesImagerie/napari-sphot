@@ -560,10 +560,13 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         delaunayButton.clicked.connect(self._onDelaunayButtonClicked)
         voronoiButton = QPushButton("Voronoi")
         voronoiButton.clicked.connect(self._onVoronoiButtonClicked)
+        exportButton = QPushButton("Export Points Per Cell")
+        exportButton.clicked.connect(self._onExportPointsPerCellButtonClicked)
         displayButtonsLayout = QHBoxLayout()
         displayButtonsLayout.addWidget(convexHullButton)
         displayButtonsLayout.addWidget(delaunayButton)
         displayButtonsLayout.addWidget(voronoiButton)
+        buttonLayout.addWidget(exportButton)
         mainLayout.addLayout(buttonLayout)
         mainLayout.addLayout(displayButtonsLayout)
         return measurementsGroupBox
@@ -782,6 +785,37 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         regions = self.voronoiTask.result
         units = self.layer.units
         self.viewer.add_shapes(regions, scale=self.voronoiTask.scale, shape_type='polygon', units=units)
+
+
+    def _onExportPointsPerCellButtonClicked(self):
+
+        worker = create_worker(self.spotsPerCellToFeatures,
+                               _progress={'desc': 'Export Spots Per Label...'})
+        worker.start()
+
+
+    def spotsPerCellToFeatures(self):
+        text = self.gFunctionSpotsCombo.currentText()
+        spots, scale, unit = self.napariUtil.getDataAndScaleOfLayerWithName(text)
+        spotsLayer = self.napariUtil.getLayerWithName(text)
+        text = self.gFunctionLabelsCombo.currentText()
+        self.layer = self.napariUtil.getLayerWithName(text)
+        labels = self.napariUtil.getDataOfLayerWithName(text)
+        table = {'id': [], 'label': [], 'z': [], 'y': [], 'x': [], 'sz': [], 'sy': [], 'sx': []}
+        i = 0
+        for point in spots:
+            label = labels[int(point[0]), int(point[1]), int(point[2])]
+            table['id'].append(i)
+            table['label'].append(label)
+            table['z'].append(int(point[0]))
+            table['y'].append(int(point[1]))
+            table['x'].append(int(point[2]))
+            table['sz'].append(int(point[0]) * scale[0])
+            table['sy'].append(int(point[1]) * scale[1])
+            table['sx'].append(int(point[2]) * scale[2])
+            i = i + 1
+            yield
+        spotsLayer.features = table
 
 
     def _onSegmentImageButtonClicked(self):
