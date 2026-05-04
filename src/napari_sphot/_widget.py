@@ -381,6 +381,8 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         mainLayout = QVBoxLayout()
         segmentImageButton = QPushButton("Segment Image")
         segmentImageButton.clicked.connect(self._onSegmentImageButtonClicked)
+        remapLabelsButton = QPushButton("Remap Labels")
+        remapLabelsButton.clicked.connect(self._onRemapLabelsButtonClicked)
         segmentImageOptionsButton = self.getOptionsButton(self._onSegmentImageOptionsClicked)
         segmentImageOptionsButton.setMaximumWidth(50)
         keepLabelsLabel, self.keepLabelsInput = WidgetTool.getLineInput(self, "Keep labels: ",
@@ -397,6 +399,7 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
         keepLabelsLayout = QHBoxLayout()
         detectionLayout = QHBoxLayout()
         segmentationLayout.addWidget(segmentImageButton)
+        segmentationLayout.addWidget(remapLabelsButton)
         segmentationLayout.addWidget(segmentImageOptionsButton)
         keepLabelsLayout.addWidget(keepLabelsLabel)
         keepLabelsLayout.addWidget(self.keepLabelsInput)
@@ -835,6 +838,21 @@ class SpatialHeterogeneityOfTranscriptionWidget(QWidget):
                                _progress={'total': 5, 'desc': 'Segmenting cells...'})
 
         worker.finished.connect(self.onSegmentationFinished)
+        worker.start()
+
+
+    def remapLabels(self):
+        labels = self.layer.data
+        for index, value in enumerate(np.unique(labels)):
+            labels[labels == value] = index
+
+
+    def _onRemapLabelsButtonClicked(self):
+        self.layer = self.getActiveLayer()
+        if not self.layer or not type(self.layer) is Labels:
+            return
+        worker = create_worker(self.remapLabels,
+                               _progress={'desc': 'Remapping labels...'})
         worker.start()
 
 
